@@ -45,7 +45,8 @@
 ## 管理后台形态
 
 - 纯静态、无构建：ES 模块按页面拆文件，`app.js` 只做路由注册与全局事件，页面渲染器注册进 `SCREENS` 注册表。
-- 共享基建在 `api.js`：令牌、`api()` fetch 封装、`esc/fmt*` 格式化、`openModal/closeModal`（替代 window.prompt/confirm）、`renderPagination`（服务端分页）、表格容器类 `table-scroll`（移动端横向滚动）。
+- 共享基建在 `api.js`：令牌、`api()` fetch 封装、`esc/fmt*` 格式化、`showModal/closeModal`（替代 window.prompt/confirm）、`renderPagination`（服务端分页）、表格容器类 `table-scroll`（移动端横向滚动）。
+- 每个文件只 import 自己真正用到的 `api.js` 导出。因为无构建步骤，漏写 import 不会在构建期报错，只会在页面上抛 `ReferenceError`（登录后整片界面空白），所以 `packages/platform/console/**/*.js` 在根 `.oxlintrc.json` 里按浏览器环境开启 `no-undef`，由 `pnpm lint` 拦下。该规则只覆盖"未定义标识符"，其他运行时错误仍需真实浏览器打开页面逐个页签确认。
 - 列表一律服务端分页（limit/offset + total），不在前端截断。
 - 401/403 统一由 `handleAuthFailure` 回登录页；登出与令牌过期都走它。
 - 上游 API key 只写不读（掩码回显）；审计详情不得包含密码、明文 key。

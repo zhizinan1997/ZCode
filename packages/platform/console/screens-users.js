@@ -21,6 +21,7 @@ import {
   fmtTokens,
   metric,
   promptModal,
+  renderPagination,
   showModal,
   showMessage,
   state,
