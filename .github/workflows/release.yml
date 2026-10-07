@@ -8,10 +8,10 @@
 #   3. macOS 安装包（.dmg / .zip）
 #   4. 一个 GitHub Release，附件即上述安装包
 #
-# 客户端要连到你的服务器，必须在仓库里设置变量 ZCODE_BASE_URL（Settings → Variables），
-# 例如 https://rcode.example.com。它会在**构建期**烘进安装包，运行期改不了指向。
-# 未设置时会用占位地址 rcode.example.com 并在日志里给出警告——占位地址既连不上你的服务器，
-# 也不会退回厂商域名，避免把指向厂商的客户端发出去。
+# 客户端要连到你的服务器，可以在仓库里设置变量 ZCODE_BASE_URL（Settings → Variables）
+# 覆盖默认值。服务地址会在**构建期**烘进安装包，运行期改不了指向。
+# 未设置时用默认正式地址 https://rcode.zhizinan.top；配置了非 https 地址会直接报错，
+# 避免打出连不上平台的安装包。
 name: Release
 
 on:
@@ -36,9 +36,13 @@ jobs:
   docker:
     name: 平台服务镜像
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # arm64 侧在 QEMU 模拟下构建，耗时远高于原生 amd64，预留足量余量。
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+
+      # 跨架构构建需要宿主机注册 binfmt，amd64 运行器上必须先装好才能执行 arm64 层。
+      - uses: docker/setup-qemu-action@v3
 
       - uses: docker/setup-buildx-action@v3
 
@@ -159,7 +163,24 @@ jobs:
     steps:
       # 必须按名字筛选：docker 任务用 cache-to: type=gha 会写入一个 <repo>.dockerbuild
       # 缓存产物，它不是可下载的普通产物；不筛选就会连它一起下载，整个 job 直接失败。
-      - uses: actions/download-artifact@v4
+      # 安装包单个可达数百 MB，download-artifact 自带的 5 次重试在 v0.0.1 发布时
+      # 仍然下载失败；这里失败后清掉半成品再整体重试一次，两次都失败才算失败。
+      - name: 下载安装包产物
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: 清理下载半成品
+        if: steps.download.outcome == 'failure'
+        run: rm -rf release-assets
+
+      - name: 重试下载安装包产物
+        if: steps.download.outcome == 'failure'
+        uses: actions/download-artifact@v4
         with:
           pattern: desktop-*
           path: release-assets
@@ -181,4 +202,4 @@ jobs:
             安装包未签名：macOS 上系统会拒绝自动安装，Windows 上会被 SmartScreen 拦截，
             请手动下载分发。平台服务镜像同时发布到 `ghcr.io/${{ github.repository_owner }}/rcode-platform`。
 
-            > 客户端在构建期指向 `${{ vars.ZCODE_BASE_URL || 'https://rcode.example.com（占位地址，未配置仓库变量 ZCODE_BASE_URL）' }}`。
+            > 客户端在构建期指向 `${{ vars.ZCODE_BASE_URL || 'https://rcode.zhizinan.top（默认服务地址）' }}`。
