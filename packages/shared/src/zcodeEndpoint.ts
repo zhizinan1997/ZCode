@@ -1,4 +1,24 @@
-import { ZCODE_PRODUCT_FLAVOR, type ZCodeEnv } from "./env.js";
+import type { ZCodeEnv } from "./env.js";
+
+// 这里不能从 env.js 值导入 ZCODE_PRODUCT_FLAVOR：desktop 的 vite.config.ts 会在 Node 下直接
+// 加载本文件，Node 的类型剥离不会把相对 "./env.js" 重写成 "./env.ts"，值导入会在模块解析阶段
+// 报 ERR_MODULE_NOT_FOUND；CLI 的 esbuild 又把 "@zcode/shared" 别名到 index.ts，包自引用子路径
+// 同样解析不到。因此就地按 env.ts 的同一条规则读构建期 define（缺 define 时退回 ZCODE_ENV 语义）。
+declare const __ZCODE_PRODUCT_FLAVOR__: string | undefined;
+declare const __ZCODE_ENV__: string | undefined;
+
+function isProductionProductFlavor(): boolean {
+  const flavor =
+    typeof __ZCODE_PRODUCT_FLAVOR__ !== "undefined"
+      ? __ZCODE_PRODUCT_FLAVOR__?.trim().toLowerCase()
+      : undefined;
+  if (flavor === "production" || flavor === "preview") {
+    return flavor === "production";
+  }
+  const env =
+    typeof __ZCODE_ENV__ !== "undefined" ? __ZCODE_ENV__?.trim().toLowerCase() : undefined;
+  return env === "production";
+}
 
 /**
  * 产品默认服务地址。
@@ -144,7 +164,7 @@ export function isTrustedCodingPlanWebviewOrigin(
  * 开发/开源 flavor 保持既有行为，回退 LEGACY_ZCODE_ENDPOINT_ORIGIN。
  */
 export function resolveDefaultZCodeEndpointOrigin(): string {
-  if (ZCODE_PRODUCT_FLAVOR === "production") {
+  if (isProductionProductFlavor()) {
     throw new Error(
       "商业版未配置服务地址：构建期必须注入 ZCODE_BASE_URL 或 ZCODE_ENDPOINT_ORIGIN，拒绝回退厂商域名。",
     );
