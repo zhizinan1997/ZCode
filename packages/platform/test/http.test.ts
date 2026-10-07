@@ -880,6 +880,56 @@ test("概览：充值后负债与用户数正确，今日消费为 0 且未配�
   });
 });
 
+test("概览未配价警示：平台模型按上游真实 ID 比较，显示名不误报", async () => {
+  await withHarness(async ({ json, adminToken, runtime }) => {
+    // 目录里平台 provider 的模型清单写的是显示名，网关按上游真实 ID 查价（model-publish.md）。
+    await runtime.repositories.providers.upsert({
+      id: "1",
+      label: "测试上游",
+      upstreamBaseUrl: "https://upstream.test/v1",
+      apiKey: "sk-test-upstream",
+      protocol: "openai",
+      enabled: true,
+      createdAt: 0,
+      updatedAt: 0,
+    });
+    const put = await json("/api/admin/publish", {
+      method: "PUT",
+      headers: { ...auth(adminToken), "content-type": "application/json" },
+      body: JSON.stringify({
+        providers: [
+          {
+            providerId: "1",
+            clientProtocol: "openai-chat-completions",
+            models: [{ upstreamModelId: "up-model-1", displayName: "上架模型一" }],
+          },
+        ],
+      }),
+    });
+    assert.equal(put.status, 200);
+    const apply = await json(
+      "/api/admin/publish/apply",
+      post({ keepBuiltinProviders: true }, adminToken),
+    );
+    assert.equal(apply.status, 200);
+
+    // 未配价：警示必须给网关查价用的上游真实 ID，显示名不能出现在列表里
+    const before = await json("/api/admin/overview", { headers: auth(adminToken) });
+    assert.equal(before.body.unpricedModels.includes("up-model-1"), true);
+    assert.equal(before.body.unpricedModels.includes("上架模型一"), false);
+
+    // 按上游真实 ID 配单价后，该模型从警示里消失
+    const priced = await json("/api/admin/prices/up-model-1", {
+      method: "PUT",
+      headers: { ...auth(adminToken), "content-type": "application/json" },
+      body: JSON.stringify({ input: "1", output: "2" }),
+    });
+    assert.equal(priced.status, 204);
+    const after = await json("/api/admin/overview", { headers: auth(adminToken) });
+    assert.equal(after.body.unpricedModels.includes("up-model-1"), false);
+  });
+});
+
 test("按模型聚合与全站流水：结算一笔用量后出现该模型与 usage 流水行", async () => {
   await withHarness(async ({ json, adminToken, runtime }) => {
     const created = await json(

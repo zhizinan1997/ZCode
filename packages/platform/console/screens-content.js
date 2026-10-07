@@ -352,42 +352,79 @@ function prefillPriceForm(modelId) {
 }
 
 /**
- * 收集已发布但未配单价的模型：并行拉 catalog 与 overview，取两边并集去重。
- * catalog 拉不到或 overview 尚未实现（404/字段缺失）时相应侧跳过，不阻塞渲染。
+ * 收集已发布但未配单价的模型：并行拉目录、发布设置与概览，取并集去重。
+ *
+ * 比价必须用网关实际查价的键（`modelId = 上游真实 ID ?? 请求体里的模型 id`）：
+ * 平台发布的目录条目（providerId 前缀 `platform:`）写的是**显示名**，要先经发布设置
+ * 映射回上游真实 ID——直接拿显示名比价会永远报"未配价"，"一键补价"也会补出网关
+ * 永远不查的死记录。内置 provider 的条目本来就是真实 ID，原样使用。
+ * 目录/发布设置/overview 任一侧拉不到时相应侧跳过，不阻塞渲染。
  */
 function collectUnpricedModels() {
+  const parsePublishNames = api("/api/admin/publish")
+    .then((body) => {
+      // 显示名 → 上游真实 ID；同一显示名可在多个上游出现，按列表收集。
+      const map = new Map();
+      for (const provider of (body && body.providers) || []) {
+        for (const model of (provider && provider.models) || []) {
+          if (
+            model &&
+            typeof model.displayName === "string" &&
+            typeof model.upstreamModelId === "string"
+          ) {
+            const list = map.get(model.displayName) || [];
+            list.push(model.upstreamModelId);
+            map.set(model.displayName, list);
+          }
+        }
+      }
+      return map;
+    })
+    .catch(() => new Map());
   const parseCatalog = api("/api/admin/catalog")
     .then((body) => {
-      const ids = [];
+      const platformNames = [];
+      const realIds = [];
+      const push = (providerId, id) => {
+        if (typeof id !== "string" || !id.trim()) return;
+        (String(providerId || "").startsWith("platform:") ? platformNames : realIds).push(id.trim());
+      };
       try {
         const content = JSON.parse(body.content || "{}");
         const config = content.config || {};
         const modelRules = (config.modelConfigRules || {}).builtinProviderModelRules || [];
         for (const rule of modelRules) {
-          if (rule && typeof rule.modelId === "string" && rule.modelId.trim()) {
-            ids.push(rule.modelId.trim());
-          }
+          if (rule) push(rule.providerId, rule.modelId);
         }
         const providerRules = (config.providerConfigRules || {}).providerRules || [];
         for (const rule of providerRules) {
           const modelIds = rule && rule.config ? rule.config.builtinModelIds : null;
           if (Array.isArray(modelIds)) {
-            for (const id of modelIds) {
-              if (typeof id === "string" && id.trim()) ids.push(id.trim());
-            }
+            for (const id of modelIds) push(rule.providerId, id);
           }
         }
       } catch {
         // 目录内容缺省或非法 JSON 时按无数据处理。
       }
-      return ids;
+      return { platformNames, realIds };
     })
-    .catch(() => []);
+    .catch(() => ({ platformNames: [], realIds: [] }));
   const parseOverview = api("/api/admin/overview")
     .then((body) => (Array.isArray(body.unpricedModels) ? body.unpricedModels.map(String) : []))
     .catch(() => []);
-  return Promise.all([parseCatalog, parseOverview]).then((results) => {
-    return [...new Set(results[0].concat(results[1]))].sort();
+  return Promise.all([parsePublishNames, parseCatalog, parseOverview]).then((results) => {
+    const upstreamByDisplay = results[0];
+    const catalog = results[1];
+    const expand = (id) => {
+      const upstreamIds = upstreamByDisplay.get(id);
+      // 映射缺失（脏数据）时保留原名，宁可多提示也不静默漏报。
+      return upstreamIds && upstreamIds.length > 0 ? upstreamIds : [id];
+    };
+    const ids = catalog.realIds.slice();
+    for (const name of catalog.platformNames) ids.push(...expand(name));
+    // overview 由服务端返回，已按真实 ID 比较；服务端版本较旧时返回显示名，这里同样能展开。
+    for (const id of results[2]) ids.push(...expand(id));
+    return [...new Set(ids)].sort();
   });
 }
 
@@ -426,7 +463,7 @@ export function renderPrices() {
       '<section class="section"><h2>未配价模型警示</h2>' +
       (unpriced.length === 0
         ? '<span class="muted">已发布的模型都有单价，没有遗漏。</span>'
-        : '<p class="message show error">以下已发布模型未配单价，调用按 0 计费（免费）：</p><ul>' +
+        : '<p class="message show error">以下模型未配单价，调用会被网关拒绝（403 model_not_priced）：</p><ul>' +
           unpriced
             .map(
               (modelId) =>
@@ -1036,7 +1073,7 @@ function dashUnpricedSectionHtml(overview) {
   }
   return (
     '<section class="section"><h2>未配价模型警示</h2>' +
-    '<p class="muted">以下已发布模型没有配置单价，调用将按 0 计费（免费）。请到「单价」页补配：</p>' +
+    '<p class="muted">以下模型没有配置单价，调用会被网关拒绝（403 model_not_priced）。请到「单价」页补配：</p>' +
     '<div class="table-scroll"><table><tbody>' +
     models.map((id) => '<tr class="row-warn"><td class="mono">' + esc(id) + "</td></tr>").join("") +
     "</tbody></table></div></section>"

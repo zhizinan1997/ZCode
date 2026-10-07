@@ -3,18 +3,27 @@ import { Hono } from "hono";
 import type { AccountService } from "../../../app/accountService.js";
 import type { BillingService } from "../../../app/billingService.js";
 import type { CatalogService } from "../../../app/catalogService.js";
+import type { ModelPublishService } from "../../../app/modelPublishService.js";
 import { PlatformError } from "../../../domain/errors.js";
+import { PLATFORM_PROVIDER_ID_PREFIX } from "../../../domain/modelPublish.js";
 import { formatMicros } from "../../../domain/money.js";
 import type { ModelPriceRepository, UsageRepository } from "../../../app/ports.js";
 import { createAdminGuard, readPagination, readSinceDays } from "./adminSupport.js";
 
 /**
- * 已发布目录里出现、但没有配置单价的模型：帮管理员发现"模型能调但账算不出来"的漏配。
+ * 已发布目录里出现、却没有配置单价的模型：帮管理员发现"模型能调但账算不出来"的漏配。
+ *
+ * 比价必须用网关实际查价的键（gatewayService：`modelId = 上游真实 ID ?? 请求体里的模型 id`）：
+ * 平台发布的目录条目（providerId 前缀 `platform:`）写的是**显示名**，要先经发布设置映射回
+ * 上游真实 ID 再比价——直接拿显示名去比会永远报"未配价"（显示名不是网关的查价键，
+ * 按显示名补的单价也永远不会被查到）。内置 provider 的条目本来就是真实 ID，原样使用。
+ * 同一显示名可以在多个上游出现，全部展开；映射缺失（脏数据）时保留原名，宁可多报不漏报。
  * 目录内容在保存时已通过结构校验，这里只做宽松读取；没有目录时差集为空。
  */
 async function collectUnpricedModels(
   current: { content: string } | null,
   prices: ModelPriceRepository,
+  publish: ModelPublishService,
 ): Promise<string[]> {
   if (!current) {
     return [];
@@ -23,14 +32,52 @@ async function collectUnpricedModels(
     config?: { providerConfigRules?: { providerRules?: unknown[] } };
   };
   const providerRules = content.config?.providerConfigRules?.providerRules ?? [];
-  const modelIds = providerRules.flatMap((rule) => {
+  const platformDisplayNames = new Set<string>();
+  const modelIds: string[] = [];
+  for (const rule of providerRules) {
+    const record = rule as {
+      providerId?: unknown;
+      config?: { builtinModelIds?: unknown };
+    };
     // 客户端严格 schema 里 provider 的可见模型清单是 config.builtinModelIds（审计#20）。
-    const ids = (rule as { config?: { builtinModelIds?: unknown } }).config?.builtinModelIds;
+    const ids = record.config?.builtinModelIds;
     if (!Array.isArray(ids)) {
-      return [];
+      continue;
     }
-    return ids.filter((id): id is string => typeof id === "string" && id.trim().length > 0);
-  });
+    const isPlatform =
+      typeof record.providerId === "string" &&
+      record.providerId.startsWith(PLATFORM_PROVIDER_ID_PREFIX);
+    for (const id of ids) {
+      if (typeof id !== "string" || !id.trim()) {
+        continue;
+      }
+      const trimmed = id.trim();
+      if (isPlatform) {
+        platformDisplayNames.add(trimmed);
+      } else {
+        modelIds.push(trimmed);
+      }
+    }
+  }
+  if (platformDisplayNames.size > 0) {
+    const settings = await publish.readSettings();
+    const upstreamByDisplay = new Map<string, string[]>();
+    for (const provider of settings.providers) {
+      for (const model of provider.models) {
+        const list = upstreamByDisplay.get(model.displayName) ?? [];
+        list.push(model.upstreamModelId);
+        upstreamByDisplay.set(model.displayName, list);
+      }
+    }
+    for (const displayName of platformDisplayNames) {
+      const upstreamIds = upstreamByDisplay.get(displayName);
+      if (upstreamIds && upstreamIds.length > 0) {
+        modelIds.push(...upstreamIds);
+      } else {
+        modelIds.push(displayName);
+      }
+    }
+  }
   const unique = [...new Set(modelIds)];
   if (unique.length === 0) {
     return [];
@@ -46,6 +93,8 @@ export function createAdminUsageRoutes(deps: {
   readonly usage: UsageRepository;
   readonly catalog: CatalogService;
   readonly prices: ModelPriceRepository;
+  /** 未配价警示要把平台模型的显示名映射回上游真实 ID（网关的查价键）。 */
+  readonly modelPublish: ModelPublishService;
   readonly now: () => number;
 }): Hono {
   const routes = new Hono();
@@ -170,7 +219,9 @@ export function createAdminUsageRoutes(deps: {
         deps.billing.sumLedgerSince({ kinds: ["recharge"], since: todayStart }),
         deps.billing.sumBalances(),
         deps.accounts.countUsers(),
-        deps.catalog.readCurrent().then((current) => collectUnpricedModels(current, deps.prices)),
+        deps.catalog
+          .readCurrent()
+          .then((current) => collectUnpricedModels(current, deps.prices, deps.modelPublish)),
       ]);
     return context.json({
       totals30,

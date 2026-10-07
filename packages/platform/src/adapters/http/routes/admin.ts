@@ -92,6 +92,7 @@ export function createAdminRoutes(deps: AdminRoutesDependencies): Hono {
       usage: deps.usage,
       catalog: deps.catalog,
       prices: deps.prices,
+      modelPublish: deps.modelPublish,
       now: deps.now,
     }),
   );
