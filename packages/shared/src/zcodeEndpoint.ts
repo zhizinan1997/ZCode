@@ -59,9 +59,19 @@ export function pickProductEndpointEnv(
     keys.flatMap((key) => (env[key]?.trim() ? [[key, env[key]!.trim()]] : [])),
   );
 }
+/**
+ * 构建期注入的公开链接。
+ *
+ * 安装包既没有 `.env`，进程环境里也不会带 `ZCODE_BASE_URL`（安装器与快捷方式都不写该变量），
+ * 平台地址只存在于这里的编译期常量。因此它不能只在默认参数里生效：调用方显式传入
+ * `process.env` 时也必须能读到，否则 production 产物会在模块求值阶段抛「商业版未配置服务地址」。
+ */
+function readBuildInjectedEndpointEnv(): Record<string, string | undefined> {
+  return typeof __ZCODE_ENDPOINT_ENV__ === "undefined" ? {} : __ZCODE_ENDPOINT_ENV__;
+}
 export function readProductEndpointEnv(): Record<string, string | undefined> {
   return {
-    ...(typeof __ZCODE_ENDPOINT_ENV__ === "undefined" ? {} : __ZCODE_ENDPOINT_ENV__),
+    ...readBuildInjectedEndpointEnv(),
     ...pickProductEndpointEnv(typeof process === "undefined" ? {} : process.env),
   };
 }
@@ -116,7 +126,13 @@ function readRuntimeEnvValue(
   key: string,
 ): string | undefined {
   const value = env[key]?.trim();
-  return value ? value : undefined;
+  if (value) {
+    return value;
+  }
+  // 显式传入的 env 优先（覆盖构建期值），但缺失时回退到构建期注入：打包后的 production 客户端
+  // 进程环境里没有 ZCODE_BASE_URL，只看传入的 env 会让它在启动期就 fail fast。
+  const injected = readBuildInjectedEndpointEnv()[key]?.trim();
+  return injected ? injected : undefined;
 }
 
 export function normalizeZCodeEndpointOrigin(value: string): string {

@@ -27,6 +27,10 @@
   `ZCODE_BASE_URL` / `ZCODE_ENDPOINT_ORIGIN` 时抛错；`preview`（开发）flavor 保持原有回退行为。
 - 所有下游解析（`resolveZCodeEndpointOrigin`、`resolveRuntimeZCodeEndpointOrigin`、
   `buildRuntimeZCodeEndpointUrls`、`resolveOfficialPluginBaseUrl`、子进程 env 注入等）都经过这条路径。
+- 取值顺序固定为「调用方传入的 env → 构建期注入的 `__ZCODE_ENDPOINT_ENV__` → fail fast / 开发回退」。
+  安装包既没有 `.env`，进程环境里也没有 `ZCODE_BASE_URL`（安装器与快捷方式都不写该变量），
+  平台地址只存在于构建期注入的常量里。调用方显式传入 `process.env` 时同样必须能看到注入值，
+  否则 production 产物会在模块求值阶段就抛「商业版未配置服务地址」，应用启动即崩。
 
 ### 2. 构建期 fail fast（`packages/desktop/scripts/bundle.mjs`）
 
@@ -61,7 +65,10 @@ legacy 配置迁移）。这些链路在商业版没有入口，但代码尚未�
 
 1. production flavor 构建缺 `ZCODE_BASE_URL` 时：`pnpm bundle:desktop` 失败；运行期解析抛
    「商业版未配置服务地址」而不是连到 `zcode.z.ai`。
-2. `grep -rn "zcode.z.ai\|chat.z.ai\|api.z.ai\|open.bigmodel.cn\|bigmodel.cn" packages/shared packages/services packages/ui apps/zcode-cli`
+2. production 身份安装包在**进程环境没有** `ZCODE_BASE_URL` / `ZCODE_ENDPOINT_ORIGIN` 时仍能启动：
+   端点解析回退到构建期注入值（`packages/services/test/zcodeEndpointBuildInjection.test.ts` 复刻
+   desktop 的 define 组合覆盖这条语义），不得在模块求值阶段抛「商业版未配置服务地址」。
+3. `grep -rn "zcode.z.ai\|chat.z.ai\|api.z.ai\|open.bigmodel.cn\|bigmodel.cn" packages/shared packages/services packages/ui apps/zcode-cli`
    的剩余命中都属于「端点上仍保留的厂商字面量」或测试夹具，且不在任何商业版可达路径上。
-3. `startOAuth("zai")` 在客户端返回 provider 不存在，不打开浏览器。
-4. 未配置 `ZCODE_TELEMETRY_REPORT_ENDPOINT` / `ZCODE_ARMS_RUM_ENDPOINT` 时客户端零遥测出网。
+4. `startOAuth("zai")` 在客户端返回 provider 不存在，不打开浏览器。
+5. 未配置 `ZCODE_TELEMETRY_REPORT_ENDPOINT` / `ZCODE_ARMS_RUM_ENDPOINT` 时客户端零遥测出网。
