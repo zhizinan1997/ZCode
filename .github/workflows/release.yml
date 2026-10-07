@@ -157,8 +157,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # 必须按名字筛选：docker 任务用 cache-to: type=gha 会写入一个 <repo>.dockerbuild
+      # 缓存产物，它不是可下载的普通产物；不筛选就会连它一起下载，整个 job 直接失败。
       - uses: actions/download-artifact@v4
         with:
+          pattern: desktop-*
           path: release-assets
           merge-multiple: true
 
