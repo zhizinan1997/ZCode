@@ -242,3 +242,128 @@ test("令牌过期后鉴权失败", async () => {
     runtime.dispose();
   }
 });
+
+/**
+ * 历史 bcrypt 记录：迁移过来的用户 password_hash 就是这种值。
+ * 向量与 password.test.ts 同源，由 python-bcrypt 5.0.0 生成。
+ */
+const LEGACY_HASH = "$2a$10$gKXpVCcp/HwHSOGkzVyzc.B0A6idjQ67R0GFWi1Oi2wo60TSshSTu";
+const LEGACY_PASSWORD = "12345678";
+/** 同一来源，但明文只有 6 位：不满足现行强度策略，用来验证升级不阻断登录。 */
+const LEGACY_WEAK_HASH = "$2a$10$sZU/zzTOR8lHSktnZ3K18.CQrlMAktPPRnCSQQ.YuxUSXcUUsf/RC";
+const LEGACY_WEAK_PASSWORD = "legacy";
+
+/** 把已建用户的哈希改写成历史 bcrypt 记录，模拟迁移数据。 */
+async function seedLegacyHash(
+  runtime: PlatformRuntime,
+  userId: string,
+  passwordHash: string,
+): Promise<void> {
+  const user = await runtime.repositories.users.findById(userId);
+  assert.ok(user, "测试用户应已存在");
+  await runtime.repositories.users.update({ ...user, passwordHash, updatedAt: Date.now() });
+}
+
+async function readPasswordHash(runtime: PlatformRuntime, userId: string): Promise<string> {
+  const user = await runtime.repositories.users.findById(userId);
+  assert.ok(user, "测试用户应已存在");
+  return user.passwordHash;
+}
+
+test("历史 bcrypt 记录能登录，并在登录成功后无感升级为 scrypt", async () => {
+  await withRuntime(async (runtime) => {
+    const created = await runtime.accounts.createUser({
+      email: "legacy@example.com",
+      password: PASSWORD,
+    });
+    await seedLegacyHash(runtime, created.id, LEGACY_HASH);
+
+    const login = await runtime.accounts.login({
+      email: "legacy@example.com",
+      password: LEGACY_PASSWORD,
+    });
+    assert.equal(login.user.email, "legacy@example.com");
+    assert.match(await readPasswordHash(runtime, created.id), /^scrypt\$/);
+
+    // 升级后的记录仍认同一个密码
+    await runtime.accounts.login({ email: "legacy@example.com", password: LEGACY_PASSWORD });
+  });
+});
+
+test("历史 bcrypt 记录 + 不满足现行策略的旧密码：能登录，记录保持 bcrypt", async () => {
+  await withRuntime(async (runtime) => {
+    const created = await runtime.accounts.createUser({
+      email: "weak@example.com",
+      password: PASSWORD,
+    });
+    await seedLegacyHash(runtime, created.id, LEGACY_WEAK_HASH);
+
+    // 升级要写入 scrypt，而写入路径统一执行强度校验；短密码因此不升级，
+    // 但登录本身必须照常成功，否则迁移过来的老用户会被永久挡在门外。
+    await runtime.accounts.login({ email: "weak@example.com", password: LEGACY_WEAK_PASSWORD });
+    assert.equal(await readPasswordHash(runtime, created.id), LEGACY_WEAK_HASH);
+  });
+});
+
+test("bcrypt 记录密码错误：登录失败且不改写记录", async () => {
+  await withRuntime(async (runtime) => {
+    const created = await runtime.accounts.createUser({
+      email: "legacy@example.com",
+      password: PASSWORD,
+    });
+    await seedLegacyHash(runtime, created.id, LEGACY_HASH);
+
+    await assert.rejects(
+      () => runtime.accounts.login({ email: "legacy@example.com", password: "wrong-password" }),
+      expectCode("invalid_credentials"),
+    );
+    assert.equal(await readPasswordHash(runtime, created.id), LEGACY_HASH);
+  });
+});
+
+test("停用的 bcrypt 用户在状态检查处被拒，记录不被升级", async () => {
+  await withRuntime(async (runtime) => {
+    const created = await runtime.accounts.createUser({
+      email: "legacy@example.com",
+      password: PASSWORD,
+    });
+    await seedLegacyHash(runtime, created.id, LEGACY_HASH);
+    await runtime.accounts.setUserStatus({ userId: created.id, status: "disabled" });
+
+    // 校验顺序是"先验密码、再看状态"，升级排在状态检查之后，
+    // 因此停用用户不会因为一次失败的登录尝试被改写哈希。
+    await assert.rejects(
+      () => runtime.accounts.login({ email: "legacy@example.com", password: LEGACY_PASSWORD }),
+      expectCode("invalid_credentials"),
+    );
+    assert.equal(await readPasswordHash(runtime, created.id), LEGACY_HASH);
+  });
+});
+
+test("bcrypt 用户改密后记录直接变为 scrypt", async () => {
+  await withRuntime(async (runtime) => {
+    const created = await runtime.accounts.createUser({
+      email: "legacy@example.com",
+      password: PASSWORD,
+    });
+    await seedLegacyHash(runtime, created.id, LEGACY_HASH);
+    const login = await runtime.accounts.login({
+      email: "legacy@example.com",
+      password: LEGACY_PASSWORD,
+    });
+    const session = await runtime.accounts.authenticate(login.token);
+
+    // 改密本来就走 hashPassword，不需要为 bcrypt 单开升级分支
+    await runtime.accounts.changePassword({
+      userId: created.id,
+      currentPassword: LEGACY_PASSWORD,
+      newPassword: "brand-new-password",
+      keepSessionId: session.session.id,
+    });
+    assert.match(await readPasswordHash(runtime, created.id), /^scrypt\$/);
+    await runtime.accounts.login({
+      email: "legacy@example.com",
+      password: "brand-new-password",
+    });
+  });
+});

@@ -68,7 +68,11 @@ export type { TokenClaims } from "./domain/token.js";
 export { readBearerToken } from "./domain/token.js";
 export type { TokenSigner } from "./adapters/crypto/tokenSigner.js";
 export { createTokenSigner } from "./adapters/crypto/tokenSigner.js";
-export { hashPassword, verifyPassword } from "./adapters/crypto/passwordHash.js";
+export {
+  hashPassword,
+  needsPasswordRehash,
+  verifyPassword,
+} from "./adapters/crypto/passwordHash.js";
 export {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,

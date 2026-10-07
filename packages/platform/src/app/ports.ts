@@ -58,6 +58,8 @@ export interface AccountServiceDependencies {
   readonly newSessionId: () => string;
   readonly hashPassword: (plain: string) => Promise<string>;
   readonly verifyPassword: (plain: string, stored: string) => Promise<boolean>;
+  /** 记录是否为需要升级为 scrypt 的历史 bcrypt 哈希；登录成功后据此重写。 */
+  readonly needsPasswordRehash: (stored: string) => boolean;
   readonly signToken: (claims: {
     sub: string;
     role: PlatformRole;

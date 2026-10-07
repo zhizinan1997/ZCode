@@ -2,7 +2,8 @@
  * 账号用例。所有登录态相关的写操作都收敛在这里，HTTP 与 CLI 只是它的调用方。
  *
  * 枚举防护：登录失败一律返回 invalid_credentials，且邮箱不存在时也要走一次真实的
- * scrypt 校验，避免通过响应耗时区分"账号不存在"与"密码错误"。
+ * scrypt 校验，避免通过响应耗时区分"账号不存在"与"密码错误"。历史 bcrypt 记录的
+ * 校验成本随记录自带 cost 变化，这条防护在它们升级为 scrypt 之前只是近似成立。
  */
 import { PlatformError } from "../domain/errors.js";
 import type { PlatformRole, UserRecord, UserStatus } from "../domain/user.js";
@@ -278,6 +279,18 @@ export function createAccountService(options: AccountServiceOptions): AccountSer
       }
       if (user.status !== "active") {
         throw invalidCredentials();
+      }
+      if (options.needsPasswordRehash(user.passwordHash)) {
+        // 历史 bcrypt 记录：登录成功后无感升级为 scrypt，让遗留格式随登录收敛。
+        // 升级条件带强度校验——迁移过来的旧密码可能不满足现行策略，那种记录保持
+        // bcrypt 不动，升级不能反过来把这些用户挡在门外（写入路径只有一套策略）。
+        if (!validatePasswordStrength(password)) {
+          await users.update({
+            ...user,
+            passwordHash: await options.hashPassword(password),
+            updatedAt: now(),
+          });
+        }
       }
       const issuedAt = now();
       const expiresAt = issuedAt + options.sessionTtlMs;

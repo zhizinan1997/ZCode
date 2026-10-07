@@ -25,7 +25,7 @@ import {
   newUserId,
 } from "./crypto/ids.js";
 import { createTokenSigner } from "./crypto/tokenSigner.js";
-import { hashPassword, verifyPassword } from "./crypto/passwordHash.js";
+import { hashPassword, needsPasswordRehash, verifyPassword } from "./crypto/passwordHash.js";
 import type { PlatformConfig } from "./config.js";
 import { createLogger, type Logger } from "./log.js";
 import { createFetchUpstreamTransport } from "./http/upstreamTransport.js";
@@ -137,6 +137,7 @@ export async function createPlatformRuntime(
     newSessionId,
     hashPassword,
     verifyPassword,
+    needsPasswordRehash,
     signToken: (claims) => signer.sign(claims),
     verifyToken: (token) => signer.verify(token),
     sessionTtlMs: options.config.sessionTtlMs,

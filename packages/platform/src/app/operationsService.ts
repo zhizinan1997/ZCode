@@ -34,7 +34,11 @@ interface OperationsLogger {
 
 export type { SystemSettingsView };
 
-/** 依赖注入：hashApiKey/verifyApiKey 与用户密码哈希同构（scrypt），由 adapters 提供。 */
+/**
+ * 依赖注入：hashApiKey/verifyApiKey 与用户密码哈希复用同一对函数，由 adapters 提供。
+ * 写入恒为 scrypt；校验兼容历史 bcrypt 记录，但 API Key 只由 hashApiKey 写入，
+ * 那条分支对它不可达。
+ */
 export interface OperationsServiceDeps {
   readonly audit: AuditRepository;
   readonly settings: SettingsRepository;

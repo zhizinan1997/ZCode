@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.19.11",
+    "bcryptjs": "^3.0.3",
     "hono": "^4.12.9"
   },
   "devDependencies": {
