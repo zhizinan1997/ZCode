@@ -46,7 +46,6 @@ function report(error) {
 
 // 子模块需要"重绘当前页"，但不应反向依赖入口模块，因此在这里注入。
 configureUserScreens({ rerender: () => renderPanel() });
-configureContentScreens({ rerender: () => renderPanel() });
 
 function renderChrome() {
   const signedIn = Boolean(getToken());
