@@ -1,6 +1,11 @@
-import { DEFAULT_ZCODE_ENDPOINT_ORIGIN } from "@zcode/shared";
-
-const PRODUCTION_WEB_ORIGIN = DEFAULT_ZCODE_ENDPOINT_ORIGIN;
+/**
+ * 生产站 origin 只来自构建期注入的 VITE_ZCODE_BASE_URL。
+ *
+ * 商业版域名边界：不再内置厂商域名兜底；未注入时为空串，
+ * resolveAllowedAppReturnOrigin 只信任当前页面 origin（与旧行为等价，但不会放行厂商站）。
+ */
+const webEnv = (import.meta as ImportMeta & { env?: { VITE_ZCODE_BASE_URL?: string } }).env;
+const PRODUCTION_WEB_ORIGIN = webEnv?.VITE_ZCODE_BASE_URL?.trim().replace(/\/+$/u, "") ?? "";
 const WEB_CALLBACK_PATHS = new Set(["/cn/share/callback", "/share/callback"]);
 const SHARE_PATH_PATTERN = /^\/(?:cn\/share|share)\/[A-Za-z0-9._~-]{1,512}$/u;
 const PRIVATE_DEV_RETURN_TO_PATTERN =

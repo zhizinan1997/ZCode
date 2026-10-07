@@ -1,8 +1,8 @@
 import { posix } from "node:path";
 import type { CustomPublishOptions, PackageFileInfo } from "builder-util-runtime";
 import {
-  DEFAULT_ZCODE_ENDPOINT_ORIGIN,
   normalizeZCodeEndpointOrigin,
+  resolveRuntimeZCodeEndpointOrigin,
   type ElectronReleaseChannel,
 } from "@zcode/shared";
 import {
@@ -182,7 +182,8 @@ export class ManifestUpdateProvider extends Provider<UpdateInfo> {
   private readonly options: ManifestUpdateProviderOptions;
   private readonly releasePlatform: string;
   private readonly linuxExtensions: readonly string[] | null;
-  private resolveBaseUrl = new URL(DEFAULT_ZCODE_ENDPOINT_ORIGIN);
+  // 商业版域名边界：字段初始值也走构建期注入的服务地址，不回退厂商域名。
+  private resolveBaseUrl = new URL(resolveRuntimeZCodeEndpointOrigin());
 
   constructor(
     options: ManifestUpdateProviderOptions,
@@ -194,7 +195,7 @@ export class ManifestUpdateProvider extends Provider<UpdateInfo> {
     this.linuxExtensions = getLinuxUpdateExtensions(updater);
     this.releasePlatform = options.releasePlatform?.trim() || getElectronReleasePlatform();
     this.resolveBaseUrl = new URL(
-      normalizeZCodeEndpointOrigin(options.endpointOrigin ?? DEFAULT_ZCODE_ENDPOINT_ORIGIN),
+      normalizeZCodeEndpointOrigin(options.endpointOrigin ?? resolveRuntimeZCodeEndpointOrigin()),
     );
   }
 
@@ -247,7 +248,7 @@ export class ManifestUpdateProvider extends Provider<UpdateInfo> {
     const resolved =
       (await this.options.resolveEndpointOrigin?.()) ??
       this.options.endpointOrigin ??
-      DEFAULT_ZCODE_ENDPOINT_ORIGIN;
+      resolveRuntimeZCodeEndpointOrigin();
     return normalizeZCodeEndpointOrigin(resolved);
   }
 

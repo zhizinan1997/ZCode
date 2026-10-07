@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { app, BrowserWindow, dialog, session, shell } from "electron";
 import type { MessageBoxOptions } from "electron";
 import {
-  DEFAULT_ZCODE_ENDPOINT_ORIGIN,
   DesktopCommandIds,
   PlatformChannels,
   type AppSettings,
@@ -447,7 +446,7 @@ function toggleZCodeStdioTapDevProxy(options: {
 
 function resolveChangelogUrl(
   locale: Locale,
-  endpointOrigin = DEFAULT_ZCODE_ENDPOINT_ORIGIN,
+  endpointOrigin = resolveRuntimeZCodeEndpointOrigin(),
 ): string {
   // 帮助菜单里的外链以前只有固定英文地址，切到中文界面后仍会落到英文 changelog。
   // 这里统一收口到主进程按当前应用语言分流，避免菜单模板里手写分支后续再出现多处不一致。
@@ -457,7 +456,7 @@ function resolveChangelogUrl(
 
 export async function openChangelog(
   locale: Locale,
-  endpointOrigin = DEFAULT_ZCODE_ENDPOINT_ORIGIN,
+  endpointOrigin = resolveRuntimeZCodeEndpointOrigin(),
 ) {
   await shell.openExternal(resolveChangelogUrl(locale, endpointOrigin));
 }
@@ -626,7 +625,8 @@ export async function executeDesktopCommand(options: {
       return;
     case DesktopCommandIds.SetZCodeEndpointProduction:
       await setZCodeEndpointOverride({
-        value: DEFAULT_ZCODE_ENDPOINT_ORIGIN,
+        // 商业版域名边界：“生产”预设就是构建期注入的平台地址，不再写死厂商域名。
+        value: resolveRuntimeZCodeEndpointOrigin(),
         settingService: options.settingService,
         onZCodeEndpointChanged: options.onZCodeEndpointChanged,
         logger: options.logger,
@@ -642,7 +642,8 @@ export async function executeDesktopCommand(options: {
       return;
     case DesktopCommandIds.SetZCodeEndpointCustom: {
       const current =
-        (await options.settingService.get()).zcodeEndpointOrigin ?? DEFAULT_ZCODE_ENDPOINT_ORIGIN;
+        (await options.settingService.get()).zcodeEndpointOrigin ??
+        resolveRuntimeZCodeEndpointOrigin();
       const value = await promptCustomZCodeEndpoint(targetWindow, current);
       if (!value) {
         return;

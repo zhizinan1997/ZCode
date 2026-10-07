@@ -1,7 +1,8 @@
 import {
   ApiError,
-  DEFAULT_ZCODE_ENDPOINT_ORIGIN,
+  LEGACY_ZCODE_ENDPOINT_ORIGIN,
   normalizeZCodeEndpointOrigin,
+  resolveRuntimeZCodeEndpointOrigin,
   rewriteZCodeEndpointUrl,
   type ApiClient,
   type ApiRequestInit,
@@ -53,7 +54,8 @@ function withZCodeEndpointHeaders(
     });
   }
 
-  if (next.get("HTTP-Referer") === DEFAULT_ZCODE_ENDPOINT_ORIGIN) {
+  // 商业版域名边界：调用方显式提供的厂商 origin（历史默认头）必须改写成当前配置的服务地址。
+  if (next.get("HTTP-Referer") === LEGACY_ZCODE_ENDPOINT_ORIGIN) {
     next.set("HTTP-Referer", endpointOrigin);
   }
   return next;
@@ -90,7 +92,7 @@ export class NodeApiClient implements ApiClient {
     const endpointOrigin = this.resolveZCodeEndpointOrigin
       ? await this.resolveZCodeEndpointOrigin()
       : undefined;
-    const activeEndpointOrigin = endpointOrigin ?? DEFAULT_ZCODE_ENDPOINT_ORIGIN;
+    const activeEndpointOrigin = endpointOrigin ?? resolveRuntimeZCodeEndpointOrigin();
     const requestInput = rewriteZCodeEndpointUrl(input, activeEndpointOrigin);
     const url = resolveUrl(requestInput);
     const method = resolveMethod(init);

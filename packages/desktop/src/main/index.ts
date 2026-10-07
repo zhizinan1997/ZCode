@@ -69,7 +69,7 @@ import {
   PlatformChannels,
   ZCODE_ENV,
   ZCODE_PRODUCT_FLAVOR,
-  DEFAULT_ZCODE_ENDPOINT_ORIGIN,
+  LEGACY_ZCODE_ENDPOINT_ORIGIN,
   DEFAULT_LOCALE,
   ZCODE_VERSION,
   ZCODE_TELEMETRY_ENABLED,
@@ -1378,7 +1378,9 @@ async function resolveZCodeEndpointSelection(): Promise<"production" | "test" | 
     return "production";
   }
   const origin = await resolveCurrentZCodeEndpointOrigin();
-  if (origin === DEFAULT_ZCODE_ENDPOINT_ORIGIN) {
+  // 历史线上默认地址在测试环境下等价于“production”预设；商业版域名边界下该常量
+  // 只用于兼容 dev/preview 的旧行为，production 构建在上方已提前返回。
+  if (origin === LEGACY_ZCODE_ENDPOINT_ORIGIN) {
     return "production";
   }
   return "custom";

@@ -1,7 +1,16 @@
 import type { HttpClientPort, HttpClientRunOptions, TraceContext } from "@zcode/contracts";
-import { resolveBigModelApiOrigin } from "@zcode/shared";
+import { resolveBigModelApiOrigin, resolveZaiBusinessBaseUrl } from "@zcode/shared";
 
-const ZAI_API_HOST = "https://api.z.ai";
+// 商业版域名边界：只有显式配置 ZAI_BUSINESS_BASE_URL 时才允许请求厂商业务域名，
+// 不再静默回退 api.z.ai。这里只服务开源版遗留的厂商 Coding Plan 登录链路。
+function resolveZaiApiHost(): string {
+  if (!process.env.ZAI_BUSINESS_BASE_URL?.trim()) {
+    throw new CodingPlanApiKeyError(
+      "Z.AI business base URL is not configured; set ZAI_BUSINESS_BASE_URL to use the legacy Z.AI coding plan login.",
+    );
+  }
+  return resolveZaiBusinessBaseUrl(process.env);
+}
 const JSON_CONTENT_TYPE = "application/json";
 const ZCODE_API_KEY_NAME = "zcode-api-key";
 const DEFAULT_ORG_NAME = "默认机构";
@@ -94,7 +103,7 @@ export function createCodingPlanApiKeyResolver(
       return resolveBizApiKey(
         {
           authorization: `Bearer ${bizToken}`,
-          host: ZAI_API_HOST,
+          host: resolveZaiApiHost(),
           httpClient: options.httpClient,
           requireSecretKey: true,
           trace: options.trace,
@@ -119,7 +128,7 @@ async function resolveZaiBizToken(
       },
       method: "POST",
       trace: options.trace,
-      url: `${ZAI_API_HOST}/api/auth/z/login`,
+      url: `${resolveZaiApiHost()}/api/auth/z/login`,
     },
     runOptions,
   );

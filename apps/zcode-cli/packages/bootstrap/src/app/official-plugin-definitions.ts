@@ -55,7 +55,8 @@ export interface OfficialPluginDefinition {
   version: string;
 }
 
-const ZAI_AUTHOR = { name: "Z.ai", url: "https://z.ai" } as const;
+// 商业版域名边界：官方插件作者不再标注厂商 Z.ai / https://z.ai，改为产品自身品牌。
+const RCODE_AUTHOR = { name: "RCode" } as const;
 // 跟随客户端配置的服务地址，不再固定指向厂商 CDN（见 resolveOfficialPluginBaseUrl）。
 const OFFICIAL_PLUGIN_ASSETS_BASE_URL = `${resolveOfficialPluginBaseUrl()}/assets`;
 
@@ -109,7 +110,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
   },
   {
     listing: {
-      author: ZAI_AUTHOR,
+      author: RCODE_AUTHOR,
       category: "developer-tools",
       displayName: "Android Emulator",
       displayName_i18n: { "zh-CN": "Android 模拟器" },
@@ -133,7 +134,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
     defaultEnabled: true,
     hostMcpServerNames: ["node_repl"],
     listing: {
-      author: ZAI_AUTHOR,
+      author: RCODE_AUTHOR,
       category: "productivity",
       displayName: "Browser Use",
       displayName_i18n: { "zh-CN": "浏览器操作" },
@@ -165,7 +166,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
     ([name, skill, displayName, chineseName]): OfficialPluginDefinition => ({
       defaultEnabled: true,
       listing: {
-        author: ZAI_AUTHOR,
+        author: RCODE_AUTHOR,
         category: "productivity",
         displayName,
         displayName_i18n: { "zh-CN": chineseName },
@@ -188,7 +189,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
     // 沿用原聚合文档插件的官方搜图能力，仅拆出独立开关；认证仍由官方 MCP adapter 注入。
     defaultEnabled: true,
     listing: {
-      author: ZAI_AUTHOR,
+      author: RCODE_AUTHOR,
       category: "productivity",
       displayName: "Image Search",
       displayName_i18n: { "zh-CN": "搜图" },
@@ -206,7 +207,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
   },
   {
     listing: {
-      author: ZAI_AUTHOR,
+      author: RCODE_AUTHOR,
       category: "developer-tools",
       displayName: "iOS Simulator",
       displayName_i18n: { "zh-CN": "iOS 模拟器" },
@@ -226,7 +227,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
   },
   {
     listing: {
-      author: ZAI_AUTHOR,
+      author: RCODE_AUTHOR,
       category: "utilities",
       displayName: "Restore Legacy Sessions",
       displayName_i18n: { "zh-CN": "恢复旧版会话" },
@@ -249,7 +250,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
     name: "plugin-creator",
     version: "0.1.1",
     listing: {
-      author: ZAI_AUTHOR,
+      author: RCODE_AUTHOR,
       category: "utilities",
       displayName: "Plugin Creator",
       // 创建器使用客户端自带图标，不再借用 skill-creator 的远端图片。
@@ -278,7 +279,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
   {
     defaultEnabled: true,
     listing: {
-      author: ZAI_AUTHOR,
+      author: RCODE_AUTHOR,
       category: "utilities",
       displayName: "Skill Creator",
       displayName_i18n: { "zh-CN": "技能创建器" },
@@ -299,7 +300,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
     // 让用户/agent 开箱即用地拿到 ZCode 配置指南、自诊断技能与 dynamic workflow 编写指南。
     defaultEnabled: true,
     listing: {
-      author: ZAI_AUTHOR,
+      author: RCODE_AUTHOR,
       category: "utilities",
       displayName: "ZCode Guide",
       displayName_i18n: { "zh-CN": "ZCode 使用指南" },
@@ -340,7 +341,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
     // 以兼容原生 Helper identity；EN 描述基线走 manifest
     // description，这里只放 zh-CN 覆盖；resolveLocalizedText 在 en-US 时回退到 manifest。
     listing: {
-      author: ZAI_AUTHOR,
+      author: RCODE_AUTHOR,
       category: "productivity",
       displayName: "Computer Use",
       displayName_i18n: { "zh-CN": "电脑控制" },

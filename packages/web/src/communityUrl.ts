@@ -1,9 +1,9 @@
 import {
-  DEFAULT_ZCODE_ENDPOINT_ORIGIN,
   ZCODE_VERSION,
   buildHelpAppConfigUrl,
   createHelpAppConfigReader,
   resolveHelpAppConfig,
+  resolveRuntimeZCodeEndpointOrigin,
   type Locale,
 } from "@zcode/shared";
 import localDefaultAppConfig from "../../../config/default.json" with { type: "json" };
@@ -24,7 +24,8 @@ export async function resolveWebHelpConfig(options: ResolveWebCommunityUrlOption
     options.endpointOrigin ??
     (env?.VITE_ZCODE_BASE_URL?.trim() ||
       env?.VITE_ZCODE_ENDPOINT_ORIGIN?.trim() ||
-      DEFAULT_ZCODE_ENDPOINT_ORIGIN);
+      // 商业版域名边界：不回退厂商域名，缺省跟随构建期注入的服务地址。
+      resolveRuntimeZCodeEndpointOrigin());
   // 服务端拒绝 platform=web；浏览器省略可选平台参数，避免伪装桌面系统。
   const url = buildHelpAppConfigUrl(endpoint, ZCODE_VERSION);
   let remote: unknown;

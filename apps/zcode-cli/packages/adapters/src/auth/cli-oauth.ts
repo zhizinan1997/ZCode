@@ -1,7 +1,12 @@
 import { randomBytes } from "node:crypto";
+import { resolveRuntimeZCodeEndpointOrigin } from "@zcode/shared";
 import type { HttpClientPort, HttpClientRunOptions, TraceContext } from "@zcode/contracts";
 
-const DEFAULT_ZCODE_OAUTH_BASE_URL = "https://zcode.z.ai/api/v1";
+// 商业版域名边界：CLI OAuth 端点跟随 ZCODE_BASE_URL / ZCODE_ENDPOINT_ORIGIN，
+// 不再写死厂商平台域名（开发 flavor 缺省仍由 shared 解析出兼容地址）。
+function resolveDefaultCliOAuthBaseUrl(): string {
+  return `${resolveRuntimeZCodeEndpointOrigin()}/api/v1`;
+}
 export type CliOAuthProviderId = "zai" | "bigmodel";
 const POLL_TOKEN_BYTES = 32;
 const JSON_CONTENT_TYPE = "application/json";
@@ -73,7 +78,7 @@ export class CliOAuthError extends Error {
 }
 
 export function createCliOAuthClient(options: CliOAuthClientOptions): CliOAuthClient {
-  const baseUrl = normalizeBaseUrl(options.baseUrl ?? DEFAULT_ZCODE_OAUTH_BASE_URL);
+  const baseUrl = normalizeBaseUrl(options.baseUrl ?? resolveDefaultCliOAuthBaseUrl());
   const encoder = new TextEncoder();
 
   return {

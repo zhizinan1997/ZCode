@@ -1,10 +1,25 @@
-import type { ZCodeEnv } from "./env.js";
+import { ZCODE_PRODUCT_FLAVOR, type ZCodeEnv } from "./env.js";
 
-export const DEFAULT_ZCODE_ENDPOINT_ORIGIN = "https://zcode.z.ai";
+/**
+ * 产品默认服务地址。
+ *
+ * 商业版域名边界（见 specs/platform/brand-boundary.md）：商业版客户端不得私下访问第三方厂商域名，
+ * 因此默认值留空。构建期必须通过 ZCODE_BASE_URL / ZCODE_ENDPOINT_ORIGIN 注入平台地址；
+ * 缺失时由 resolveZCodeEndpointOrigin fail fast，不再静默回退厂商域名。
+ */
+export const DEFAULT_ZCODE_ENDPOINT_ORIGIN = "";
+
+/**
+ * 开发/开源 flavor 的兼容回退地址，仅在 ZCODE_PRODUCT_FLAVOR !== "production" 时使用。
+ *
+ * production（商业版）flavor 解析不到显式地址时直接抛错，绝不回退到该域名；
+ * 该常量同时用于把历史产物里写死的厂商 origin 改写到配置的平台地址。
+ */
+export const LEGACY_ZCODE_ENDPOINT_ORIGIN = "https://zcode.z.ai";
+
 export const DEFAULT_BIGMODEL_API_ORIGIN = "https://bigmodel.cn";
 export const DEFAULT_ZAI_OAUTH_ORIGIN = "https://chat.z.ai";
 export const DEFAULT_ZAI_BUSINESS_BASE_URL = "https://api.z.ai";
-export const DEFAULT_ZAI_OAUTH_CLIENT_ID = "client_P8X5CMWmlaRO9gyO-KSqtg";
 
 // 构建仅注入公开链接；Node 调用方仍可显式传 env，避免读取另一进程的配置。
 declare const __ZCODE_ENDPOINT_ENV__: Record<string, string | undefined> | undefined;
@@ -110,10 +125,8 @@ export function isTrustedCodingPlanWebviewOrigin(
   if (!value) return false;
   try {
     const origin = normalizeZCodeEndpointOrigin(value);
-    if (
-      origin === DEFAULT_ZCODE_ENDPOINT_ORIGIN ||
-      origin === resolveRuntimeZCodeEndpointOrigin()
-    ) {
+    // 商业版域名边界：只信任当前配置的服务地址，不再把写死的厂商 origin 视为可信。
+    if (origin === resolveRuntimeZCodeEndpointOrigin()) {
       return true;
     }
     const parsed = new URL(origin);
@@ -123,13 +136,29 @@ export function isTrustedCodingPlanWebviewOrigin(
   }
 }
 
+/**
+ * 解析缺省服务地址。
+ *
+ * 商业版（production flavor）没有显式地址时 fail fast：宁可构建/启动失败，
+ * 也不能让客户端静默落到厂商域名（商业版域名边界）。
+ * 开发/开源 flavor 保持既有行为，回退 LEGACY_ZCODE_ENDPOINT_ORIGIN。
+ */
+export function resolveDefaultZCodeEndpointOrigin(): string {
+  if (ZCODE_PRODUCT_FLAVOR === "production") {
+    throw new Error(
+      "商业版未配置服务地址：构建期必须注入 ZCODE_BASE_URL 或 ZCODE_ENDPOINT_ORIGIN，拒绝回退厂商域名。",
+    );
+  }
+  return LEGACY_ZCODE_ENDPOINT_ORIGIN;
+}
+
 export function resolveZCodeEndpointOrigin(options?: {
   env?: ZCodeEnv;
   envBaseOrigin?: string | null;
   overrideOrigin?: string | null;
 }): string {
   const origin = options?.overrideOrigin?.trim() || options?.envBaseOrigin?.trim();
-  return origin ? normalizeZCodeEndpointOrigin(origin) : DEFAULT_ZCODE_ENDPOINT_ORIGIN;
+  return origin ? normalizeZCodeEndpointOrigin(origin) : resolveDefaultZCodeEndpointOrigin();
 }
 
 export function resolveRuntimeZCodeEnv(
@@ -226,10 +255,11 @@ export function resolveZaiBusinessBaseUrl(
 export function resolveZaiOAuthClientId(
   env: RuntimeZaiEndpointEnv = readProductEndpointEnv(),
 ): string {
+  // 商业版域名边界：不再内置厂商 OAuth client id，只接受运行时/构建期显式注入。
   return (
     readRuntimeEnvValue(env, "ZAI_OAUTH_CLIENT_ID") ??
     readRuntimeEnvValue(env, "ZAI_OAUTH_APP_ID") ??
-    DEFAULT_ZAI_OAUTH_CLIENT_ID
+    ""
   );
 }
 
@@ -291,7 +321,9 @@ export function rewriteZCodeEndpointUrl(input: string | URL, endpointOrigin: str
   } catch {
     return input;
   }
-  const sourceOrigin = DEFAULT_ZCODE_ENDPOINT_ORIGIN;
+  // 历史产物与旧配置里可能写死了厂商 origin；这类 URL 仍要改写到配置的平台地址，
+  // 避免客户端把请求发到第三方厂商域名（商业版域名边界）。
+  const sourceOrigin = LEGACY_ZCODE_ENDPOINT_ORIGIN;
   if (parsed.origin !== sourceOrigin) {
     return input;
   }

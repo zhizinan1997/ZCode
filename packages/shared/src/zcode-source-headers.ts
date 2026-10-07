@@ -1,8 +1,9 @@
-import { DEFAULT_ZCODE_ENDPOINT_ORIGIN } from "./zcodeEndpoint.js";
+import { resolveRuntimeZCodeEndpointOrigin } from "./zcodeEndpoint.js";
 
+// 商业版域名边界：默认头里不再内置厂商 origin 作为 HTTP-Referer；
+// Referer 只由调用方显式传入，或按当前配置的服务地址解析。
 export const ZCODE_SOURCE_HEADERS = {
   "User-Agent": "ZCode/unknown",
-  "HTTP-Referer": DEFAULT_ZCODE_ENDPOINT_ORIGIN,
   "X-Title": "Z Code@electron",
 } as const;
 
@@ -36,7 +37,7 @@ export function buildZCodeSourceHeadersFromContext(
   const clientTimezone = normalizeZCodeSourceHeaderValue(options.clientTimezone) ?? "unknown";
   const deviceMid = normalizeZCodeSourceHeaderValue(options.deviceMid);
   const endpointOrigin =
-    normalizeZCodeSourceHeaderValue(options.endpointOrigin) ?? DEFAULT_ZCODE_ENDPOINT_ORIGIN;
+    normalizeZCodeSourceHeaderValue(options.endpointOrigin) ?? resolveRuntimeZCodeEndpointOrigin();
   const osVersion = normalizeZCodeSourceHeaderValue(options.osVersion);
   const platform = normalizeZCodeSourceHeaderValue(options.platform);
   const releaseChannel = normalizeZCodeSourceHeaderValue(options.releaseChannel);

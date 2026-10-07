@@ -1,9 +1,9 @@
 import {
-  DEFAULT_ZCODE_ENDPOINT_ORIGIN,
   ZCODE_VERSION,
   buildZCodeEndpointUrls,
   getForceUpdateMinimalVersionFromConfig,
   resolveForceUpdateRequirement,
+  resolveRuntimeZCodeEndpointOrigin,
   type ForceUpdateRequirement,
   type Locale,
 } from "@zcode/shared";
@@ -44,7 +44,9 @@ interface ForceUpdateGuardOptions {
   onBlocked?: (requirement: ForceUpdateRequirement) => void;
 }
 
-function resolveForceUpdateClientConfigUrl(endpointOrigin = DEFAULT_ZCODE_ENDPOINT_ORIGIN): string {
+function resolveForceUpdateClientConfigUrl(
+  endpointOrigin = resolveRuntimeZCodeEndpointOrigin(),
+): string {
   const url = new URL(
     `${buildZCodeEndpointUrls(endpointOrigin).origin}${ZCODE_CLIENT_CONFIG_API_PATH}`,
   );
@@ -183,7 +185,7 @@ async function resolveDesktopForceUpdateRequirement(options: {
 
 function resolveForceUpdateDownloadUrl(
   locale: Locale,
-  endpointOrigin = DEFAULT_ZCODE_ENDPOINT_ORIGIN,
+  endpointOrigin = resolveRuntimeZCodeEndpointOrigin(),
 ): string {
   const origin = buildZCodeEndpointUrls(endpointOrigin).origin;
   return locale === "zh-CN" ? `${origin}/cn` : `${origin}/en`;

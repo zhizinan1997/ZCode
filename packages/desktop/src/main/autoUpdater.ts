@@ -2,7 +2,6 @@
 import type { ISettingService } from "@zcode/services";
 import {
   DEFAULT_LOCALE,
-  DEFAULT_ZCODE_ENDPOINT_ORIGIN,
   desktopMenuMessageIds,
   formatDesktopMenuMessage,
   getDesktopMenuMessage,
@@ -756,7 +755,8 @@ function applyManifestUpdateProvider(options: InitAutoUpdaterOptions): void {
   autoUpdater.setFeedURL({
     provider: "custom",
     updateProvider: ManifestUpdateProvider,
-    endpointOrigin: DEFAULT_ZCODE_ENDPOINT_ORIGIN,
+    // 商业版域名边界：缺省只跟随构建期注入的服务地址，不回退厂商域名（production flavor 未配置即抛错）。
+    endpointOrigin: resolveRuntimeZCodeEndpointOrigin(),
     ...(manifestUrl ? { manifestUrl } : {}),
     releasePlatform: getElectronReleasePlatform(),
     deviceMid: options.deviceMid,

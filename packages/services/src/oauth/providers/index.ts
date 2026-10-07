@@ -1,37 +1,20 @@
-import { BIGMODEL_PROVIDER_ID, ZAI_PROVIDER_ID, type ApiClient } from "@zcode/shared";
+import type { ApiClient } from "@zcode/shared";
 import type { OAuthRuntimeConfig } from "../runtimeConfig.js";
-import { BigModelProviderAdapter } from "./bigmodelProviderAdapter.js";
 import type { OAuthProviderAdapter } from "./providerAdapter.js";
-import { ZaiProviderAdapter } from "./zaiProviderAdapter.js";
 
-/** 根据运行时配置创建可用 provider adapter */
+/**
+ * 创建 OAuth provider adapter。
+ *
+ * 商业版域名边界：Z.ai / BigModel 厂商 OAuth 已下线——它们的授权页与用户信息都在第三方域名
+ * （chat.z.ai / api.z.ai / bigmodel.cn），商业版账号体系只有平台账号（密码表单直连平台，不走 adapter）。
+ * 因此这里不再创建任何厂商 adapter；保留函数与签名，调用方（OAuthService）无需分支改动：
+ * 返回空列表即表示没有可启动的厂商 OAuth 流程。
+ */
 export function createOAuthProviderAdapters(
-  config: OAuthRuntimeConfig,
-  options: { apiClient?: ApiClient } = {},
+  _config: OAuthRuntimeConfig,
+  _options: { apiClient?: ApiClient } = {},
 ): OAuthProviderAdapter[] {
-  const adapters: OAuthProviderAdapter[] = [];
-  const apiClient = options.apiClient;
-  if (!apiClient) {
-    throw new Error(
-      "ApiClient 注入缺失：OAuth provider adapters 必须通过 Providers 传入 apiClient",
-    );
-  }
-
-  for (const providerConfig of config.providers) {
-    switch (providerConfig.id) {
-      case BIGMODEL_PROVIDER_ID:
-        adapters.push(new BigModelProviderAdapter(providerConfig, apiClient));
-        break;
-      case ZAI_PROVIDER_ID:
-        adapters.push(new ZaiProviderAdapter(providerConfig, apiClient));
-        break;
-      default:
-        // 未知 provider 直接忽略，避免单个配置错误拖垮全部登录能力。
-        break;
-    }
-  }
-
-  return adapters;
+  return [];
 }
 
 export type { OAuthProviderAdapter, OAuthProviderContext } from "./providerAdapter.js";

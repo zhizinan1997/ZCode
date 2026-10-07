@@ -46,7 +46,7 @@ import {
   type SettingsSectionId,
 } from "@/lib/settingsNavigation.js";
 import { runWorkspaceVisibleCommand } from "@/lib/workspaceVisibleCommand.js";
-import { ZCODE_PRODUCT_DOCS_URL } from "@/lib/productDocs.js";
+import { resolveProductDocsUrl } from "@/lib/productDocs.js";
 import appLogoUrl from "@/assets/rcode-mark.png";
 import { resolveTheme } from "@/useTheme.js";
 import { WorkspaceShellLayout } from "@/app-shell/WorkspaceShellLayout.js";
@@ -681,7 +681,7 @@ export function App({
   }, [openFeedbackSubmit, openFeedbackTickets, platform]);
   const handleOpenCommunity = useCallback(() => platform.openCommunity(), [platform]);
   const handleOpenProductDocs = useCallback(() => {
-    platform.openExternal(ZCODE_PRODUCT_DOCS_URL);
+    platform.openExternal(resolveProductDocsUrl());
   }, [platform]);
   const themeTarget = resolveTheme(theme) === "dark" ? "light" : "dark";
   const handleSwitchTheme = useCallback(() => {

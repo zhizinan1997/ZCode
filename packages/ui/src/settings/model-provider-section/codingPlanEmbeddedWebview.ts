@@ -1,10 +1,10 @@
 import {
   BIGMODEL_PROVIDER_ID,
   BUILTIN_MODEL_PROVIDER_IDS,
-  DEFAULT_ZCODE_ENDPOINT_ORIGIN,
   isTrustedCodingPlanWebviewOrigin,
   isZaiCodingPlanProviderId,
   normalizeZCodeEndpointOrigin,
+  resolveRuntimeZCodeEndpointOrigin,
   ZAI_PROVIDER_ID,
 } from "@zcode/shared";
 import type { CodingPlanWebviewLocale } from "@zcode/shared";
@@ -87,7 +87,8 @@ export function resolveCodingPlanEmbeddedOrigin({
   const normalizedEndpointOrigin = normalizeZCodeEndpointOrigin(endpointOrigin);
   return isTrustedCodingPlanWebviewOrigin(normalizedEndpointOrigin, { e2eStoreBridgeEnabled })
     ? normalizedEndpointOrigin
-    : DEFAULT_ZCODE_ENDPOINT_ORIGIN;
+    : // 商业版域名边界：不可信来源时退回当前配置的服务地址，绝不回退厂商域名。
+      resolveRuntimeZCodeEndpointOrigin();
 }
 
 export function buildCodingPlanEmbeddedWebviewUrl({

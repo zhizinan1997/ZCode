@@ -23,6 +23,7 @@ import {
   runCommandAndReadStdout,
 } from "../../../scripts/spawn-command.mjs";
 import { resolveIntranetDepsBaseUrl } from "../../../scripts/intranetDefaults.mjs";
+import { loadEndpointEnv } from "../../../scripts/load-endpoint-env.mjs";
 
 const desktopRoot = resolve(import.meta.dirname, "..");
 const workspaceRoot = resolve(desktopRoot, "../..");
@@ -44,6 +45,33 @@ const DEFAULT_TARGET_ARCH = "arm64";
 const desktopDistDir = process.env.ZCODE_DESKTOP_DIST_DIR || "dist";
 const desktopDistRoot = resolve(desktopRoot, desktopDistDir);
 const desktopProductIdentity = resolveDesktopProductIdentity(process.env);
+
+// 商业版域名边界（specs/platform/brand-boundary.md）：production 身份的安装包必须在构建期
+// 把平台服务地址烘进产物。缺 ZCODE_BASE_URL / ZCODE_ENDPOINT_ORIGIN 时在这里直接失败，
+// 避免打出一个运行期连不上任何服务器、或静默回退厂商域名的包。
+if (desktopProductIdentity.flavor === "production") {
+  const packagingEnv = await loadEndpointEnv({ root: workspaceRoot });
+  const configuredBaseUrl =
+    packagingEnv.ZCODE_BASE_URL?.trim() || packagingEnv.ZCODE_ENDPOINT_ORIGIN?.trim();
+  if (!configuredBaseUrl) {
+    console.error(
+      "[bundle] production 安装包缺少服务地址：请设置 ZCODE_BASE_URL（或 ZCODE_ENDPOINT_ORIGIN）" +
+        "为你的平台地址，例如 ZCODE_BASE_URL=https://rcode.zhizinan.top pnpm bundle:desktop。",
+    );
+    process.exit(1);
+  }
+  console.log(`[bundle] 客户端服务地址：${configuredBaseUrl}`);
+  // 显式配置成厂商域名同样不允许：商业版安装包不得把用户带到第三方厂商服务。
+  // 该地址的历史用途是「厂商线上环境」，本地环境变量里可能残留；要打开源/预览包请用
+  // ZCODE_PREVIEW_IDENTITY=1（preview 身份不走这段校验）。
+  if (configuredBaseUrl.replace(/\/+$/u, "") === "https://zcode.z.ai") {
+    console.error(
+      "[bundle] ZCODE_BASE_URL 仍指向厂商域名 https://zcode.z.ai：请改为你的平台地址" +
+        "（例如 https://rcode.zhizinan.top），或显式用 ZCODE_PREVIEW_IDENTITY=1 打预览包。",
+    );
+    process.exit(1);
+  }
+}
 
 const osAliasMap = new Map([
   ["mac", "mac"],
