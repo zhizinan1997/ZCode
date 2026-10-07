@@ -2,6 +2,7 @@ import {
   ZCODE_AGENT_CA_CERT_ENV_KEY,
   ZCODE_HTTP_PROXY_ENV_KEY,
   ZCODE_NO_PROXY_ENV_KEY,
+  ZCODE_PLATFORM_GATEWAY_TOKEN_ENV_KEY,
   ZCODE_WORKSPACE_IDENTITY_ENV,
 } from "@zcode/shared";
 
@@ -100,16 +101,28 @@ export function buildAgentRuntimeEnv(input: {
  * 时效性：与代理/CA 同语义——spawn 时读取，「下次启动 agent」生效。会话中途改设置时 host 立即
  * 更新、agent 仍是旧值，直到 agent 重启才重新对齐；期间两侧不一致只会 fail closed，不构成放行。
  */
-export function buildAgentEndpointOriginEnv(
-  endpointOrigin: string | undefined,
-): Record<string, string> {
-  const trimmed = endpointOrigin?.trim();
-  if (!trimmed) {
-    return {};
+export function buildAgentEndpointOriginEnv(input: {
+  endpointOrigin: string | undefined;
+  /**
+   * 用户的平台会话令牌。平台下发的模型目录里 provider 的 apiKey 只是占位值，
+   * 真正的凭据由 agent 在发往平台网关的请求上用这个令牌替换（见 adapters 的
+   * platform-gateway-auth-fetch）。为空表示尚未登录或不是平台账号，此时不下发，
+   * agent 保持原行为。
+   */
+  platformGatewayToken?: string | null;
+}): Record<string, string> {
+  const env: Record<string, string> = {};
+  const trimmedOrigin = input.endpointOrigin?.trim();
+  if (trimmedOrigin) {
+    // ZCODE_BASE_URL 是 resolveRuntimeZCodeEndpointOrigin 读取 envBaseOrigin 的最高优先级键，
+    // 因此能同时压过继承来的 ZCODE_ENDPOINT_ORIGIN。
+    env.ZCODE_BASE_URL = trimmedOrigin;
   }
-  // ZCODE_BASE_URL 是 resolveRuntimeZCodeEndpointOrigin 读取 envBaseOrigin 的最高优先级键，
-  // 因此能同时压过继承来的 ZCODE_ENDPOINT_ORIGIN。
-  return { ZCODE_BASE_URL: trimmed };
+  const token = input.platformGatewayToken?.trim();
+  if (token) {
+    env[ZCODE_PLATFORM_GATEWAY_TOKEN_ENV_KEY] = token;
+  }
+  return env;
 }
 
 /** 把 Host 已知的 remote workspace identity 注入对应 Agent；本地 workspace 保持 path fallback。 */

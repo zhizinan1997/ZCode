@@ -40,6 +40,14 @@ export const ZCODE_PRODUCT_FLAVOR = normalizeZCodeProductFlavor(
 export const ZCODE_APP_VERSION_ENV = "ZCODE_APP_VERSION" as const;
 export const ZCODE_BUILD_COMMIT_ID_ENV = "ZCODE_BUILD_COMMIT_ID" as const;
 
+/**
+ * 平台网关令牌的进程环境变量名。
+ *
+ * host 在 spawn agent 时注入用户的会话令牌；agent 在发往平台网关的模型请求上用它替换
+ * 模型目录里的占位凭据。两边共用同一个常量，避免各写一份字面量后改名不同步。
+ */
+export const ZCODE_PLATFORM_GATEWAY_TOKEN_ENV_KEY = "ZCODE_PLATFORM_GATEWAY_TOKEN" as const;
+
 // ── 运行时环境变量（不经过编译打包，启动时从 process.env 读取） ──
 // 启用调试模式，值为 inspect-brk 的端口号，如 ZCODE_DEBUG=9230
 export const RUNTIME_ZCODE_DEBUG =

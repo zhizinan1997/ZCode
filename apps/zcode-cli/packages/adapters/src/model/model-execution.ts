@@ -25,6 +25,7 @@ import { createOpenAIResponsesJsonCompatFetch } from "./openai-responses-json-co
 import { createModelOptionMapFetch, type RawRequestBodyCapture } from "./model-option-map-fetch.js";
 import { createNetworkProxyFetch } from "../network/proxy-fetch.js";
 import { createOfficialCodingPlanGatewayFetch } from "./official-coding-plan-gateway.js";
+import { createPlatformGatewayAuthFetch } from "./platform-gateway-auth-fetch.js";
 import { normalizeModelTlsFailure } from "./failure-tls.js";
 import { mergeModelRequestHeaders } from "./model-request-headers.js";
 
@@ -509,14 +510,23 @@ function createProviderProxyFetch(options: ProviderProxyFetchOptions): ProviderF
 }
 
 /**
- * 模型请求出口：官方 Coding Plan 端点经 ZCode 平台网关发送（做套餐权益校验等平台侧处理），
- * 其余 provider 直连；之后统一进入用户 HTTP 代理 fetch，httpProxy / noProxy 按实际发送地址判定。
- * 官方端点与网关端点的对应关系见 official-coding-plan-gateway.ts。
+ * 模型请求出口。
+ *
+ * 最外层是平台网关鉴权：目录里 provider 的 apiKey 只是占位值，发往平台网关的请求要在这里
+ * 换成 host 注入的会话令牌（见 platform-gateway-auth-fetch.ts）。它必须在网关改道**之前**，
+ * 因为判定依据是请求最终指向的地址。
+ *
+ * 内层是官方 Coding Plan 端点改道（做套餐权益校验等平台侧处理），再之后统一进入用户 HTTP 代理
+ * fetch，httpProxy / noProxy 按实际发送地址判定。官方端点与网关端点的对应关系见
+ * official-coding-plan-gateway.ts。
  */
 function createProviderTransportFetch(options: ProviderProxyFetchOptions): ProviderFetch {
-  return createOfficialCodingPlanGatewayFetch({
+  return createPlatformGatewayAuthFetch({
     env: options.env,
-    fetch: createProviderProxyFetch(options),
+    fetch: createOfficialCodingPlanGatewayFetch({
+      env: options.env,
+      fetch: createProviderProxyFetch(options),
+    }),
   });
 }
 

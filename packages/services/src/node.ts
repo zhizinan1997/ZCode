@@ -2226,7 +2226,12 @@ export function createLocalServices(options: {
         }),
         // 把 host 解析出的权威 origin（含 settings 覆盖）下发给 agent，否则 agent 侧只按
         // env 推导，test env + 自定义端点时两侧信任判定的输入分叉、官方 MCP 整体 fail closed。
-        ...buildAgentEndpointOriginEnv(await resolveCurrentZCodeEndpointOrigin()),
+        // 同时下发平台会话令牌：模型目录里 provider 的 apiKey 是占位值，agent 发往平台网关的
+        // 请求需要用它替换凭据。未登录时为空，agent 保持原行为。
+        ...buildAgentEndpointOriginEnv({
+          endpointOrigin: await resolveCurrentZCodeEndpointOrigin(),
+          platformGatewayToken: await credentialService.load("zcodejwttoken"),
+        }),
         // broker 凭据（socket/token）注入 agent spawn env，让内置 zcode-cua plugin 的
         // computer-use MCP server 经 __zcode-plugin-host 恢复 token 后连上 broker。
         // 上面 cuaProductHelperEnv 已完成代际校验与 unavailable 兜底，取代 staging 侧

@@ -67,6 +67,9 @@ jobs:
           context: .
           file: deploy/Dockerfile.platform
           push: true
+          # 同时出 amd64 与 arm64：用户可能部署在 x86 服务器，也可能在 Apple Silicon
+          # 或 arm 云主机上。arm64 走 QEMU 模拟，构建慢一些但只在发布时跑一次。
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
@@ -106,18 +109,29 @@ jobs:
 
       # 客户端指向哪台服务器由构建期决定：production 构建下运行期改不了指向，
       # 所以这里必须确认地址有效，而不是等发出去才发现连的是占位域名。
+      # 默认用已部署的正式域名；换部署地址时用仓库变量 ZCODE_BASE_URL 覆盖，无需改本文件。
       - name: 确认客户端服务地址
         shell: bash
         env:
           CONFIGURED_BASE_URL: ${{ vars.ZCODE_BASE_URL }}
         run: |
           if [ -z "$CONFIGURED_BASE_URL" ]; then
-            echo "::warning title=未配置 ZCODE_BASE_URL::安装包会使用占位地址 https://rcode.example.com，客户端将无法连接任何服务器。请在仓库 Settings → Variables 添加 ZCODE_BASE_URL 后重新发布。"
-            echo "ZCODE_CLIENT_BASE_URL=https://rcode.example.com" >> "$GITHUB_ENV"
+            CLIENT_BASE_URL="https://rcode.zhizinan.top"
+            echo "::notice title=使用默认服务地址::未设置仓库变量 ZCODE_BASE_URL，安装包将指向 $CLIENT_BASE_URL。"
           else
-            echo "客户端服务地址：$CONFIGURED_BASE_URL"
-            echo "ZCODE_CLIENT_BASE_URL=$CONFIGURED_BASE_URL" >> "$GITHUB_ENV"
+            CLIENT_BASE_URL="$CONFIGURED_BASE_URL"
           fi
+          # 客户端只接受 https 的模型目录地址（见 specs/platform/model-catalog.md），
+          # 这里提前拦下 http，避免打出连不上平台的安装包。
+          case "$CLIENT_BASE_URL" in
+            https://*) ;;
+            *)
+              echo "::error title=服务地址必须是 https::$CLIENT_BASE_URL 不是 https 地址"
+              exit 1
+              ;;
+          esac
+          echo "客户端服务地址：$CLIENT_BASE_URL"
+          echo "ZCODE_CLIENT_BASE_URL=$CLIENT_BASE_URL" >> "$GITHUB_ENV"
 
       - name: 构建安装包
         env:
