@@ -6,15 +6,39 @@ import type {
   OAuthTokenSet,
   OAuthUserProfile,
 } from "@zcode/shared";
-import { BIGMODEL_PROVIDER_ID, isCredentialDecryptError, ZAI_PROVIDER_ID } from "@zcode/shared";
+import {
+  BIGMODEL_PROVIDER_ID,
+  isCredentialDecryptError,
+  PLATFORM_PROVIDER_ID,
+  ZAI_PROVIDER_ID,
+} from "@zcode/shared";
 import type { ICredentialService } from "../../credential/credential.js";
 import { createServiceLogger } from "../../logger/serviceLogger.js";
 
 const ACTIVE_PROVIDER_KEY = "oauth:active_provider";
 const LOGIN_ATTRIBUTION_KEY = "oauth:login_attribution";
 const ZCODE_JWT_TOKEN_KEY = "zcodejwttoken";
-const KNOWN_OAUTH_PROVIDER_IDS = [BIGMODEL_PROVIDER_ID, ZAI_PROVIDER_ID] as const;
+const KNOWN_OAUTH_PROVIDER_IDS = [
+  BIGMODEL_PROVIDER_ID,
+  ZAI_PROVIDER_ID,
+  PLATFORM_PROVIDER_ID,
+] as const;
 const log = createServiceLogger("oauthCredentialRepo");
+
+/**
+ * 哪些 provider 用共享的 zcode JWT 承载会话身份。
+ *
+ * 厂商 OAuth 用它做后端身份；平台账号把它同时当作会话令牌——平台签发的令牌本身就是
+ * base64url 载荷 + HMAC 签名的紧凑格式，exp 读取约定与 JWT 兼容（见 resolveJwtExpiration）。
+ * 读写与登出清理必须共用这一个判定，否则会出现"登录写了、登出没删"的残留。
+ */
+function usesSharedZcodeJwt(provider: OAuthProviderId): boolean {
+  return (
+    provider === ZAI_PROVIDER_ID ||
+    provider === BIGMODEL_PROVIDER_ID ||
+    provider === PLATFORM_PROVIDER_ID
+  );
+}
 
 interface OAuthCredentialRepoOptions {
   providerIds?: readonly OAuthProviderId[];
@@ -298,10 +322,9 @@ export class OAuthCredentialRepo {
 
       const refreshToken = await this.credentialService.load(refreshTokenKey(provider));
 
-      const zcodeJwtToken =
-        provider === ZAI_PROVIDER_ID || provider === BIGMODEL_PROVIDER_ID
-          ? await this.credentialService.load(ZCODE_JWT_TOKEN_KEY)
-          : null;
+      const zcodeJwtToken = usesSharedZcodeJwt(provider)
+        ? await this.credentialService.load(ZCODE_JWT_TOKEN_KEY)
+        : null;
 
       return {
         accessToken,
@@ -327,7 +350,7 @@ export class OAuthCredentialRepo {
       await this.credentialService.delete(refreshTokenKey(provider));
     }
 
-    if (provider === ZAI_PROVIDER_ID || provider === BIGMODEL_PROVIDER_ID) {
+    if (usesSharedZcodeJwt(provider)) {
       if (tokenSet.zcodeJwtToken) {
         // BigModel Start Plan 与 Z.ai Start Plan 一样消费 zcode JWT。
         // JWT 必须在 OAuth callback 阶段随 tokenSet 落盘，后续 balance/runtime 只读取它，
@@ -448,5 +471,5 @@ export class OAuthCredentialRepo {
 }
 
 function shouldClearZcodeJwtOnLogout(provider: OAuthProviderId): boolean {
-  return provider === ZAI_PROVIDER_ID || provider === BIGMODEL_PROVIDER_ID;
+  return usesSharedZcodeJwt(provider);
 }

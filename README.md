@@ -1,7 +1,7 @@
-# ZCode
+# RCode
 
 <div align="center">
-  <img src="public/logo/icons/1024x1024.png" alt="ZCode" width="128" height="128" />
+  <img src="public/logo/icons/1024x1024.png" alt="RCode" width="128" height="128" />
 </div>
 <p align="center">
   <a href="https://applink.feishu.cn/client/chat/chatter/add_by_link?link_token=47ag983c-8fcb-4d6d-814b-5395193a712c&amp;qr_code=true">飞书社群</a> ·
@@ -13,11 +13,48 @@
 
 
 
-ZCode 是 AI 编程工作台，提供桌面应用、浏览器界面和终端 Agent。本仓库包含客户端、后端服务、共享 UI，以及 Agent CLI 与运行时源码。
+RCode 是 AI 编程工作台，提供桌面应用、浏览器界面和终端 Agent。本仓库包含客户端、后端服务、共享 UI，以及 Agent CLI 与运行时源码。
 
 ## 更新
 
-- 2026-9-23：更新至 ZCode v3.14.3 版本。
+- 2026-10-07：RCode v0.0.1，首个商业版发布。桌面安装包（Windows / macOS）与平台服务镜像随 Release 一起发布。
+
+## 下载与发布
+
+### 下载
+
+到 [Releases](../../releases) 页面下载对应平台的安装包：
+
+| 产物 | 说明 |
+| --- | --- |
+| `RCode-<版本>-win-x64.exe` | Windows 安装包（NSIS） |
+| `RCode-<版本>-mac-arm64.dmg` | macOS 安装包（Apple Silicon） |
+| `ghcr.io/<owner>/rcode-platform:<版本>` | 平台服务镜像（账号、模型网关、计费、管理后台） |
+
+安装包**未签名**：macOS 会拒绝自动安装（需 Developer ID 签名与公证），Windows 会被 SmartScreen 拦截，
+请手动分发。平台服务镜像的部署方式见 [deploy/README.md](deploy/README.md)。
+
+安装包在**构建期**指向平台服务地址：本地打包时用 `ZCODE_BASE_URL` 指定，
+CI 发布时读仓库变量 `ZCODE_BASE_URL`（Settings → Variables）。运行期改不了指向，
+因此发布前必须确认该地址可用，否则客户端连不上任何服务器。
+
+### 发布新版本
+
+推送 `v*` 形式的 tag 即触发 [发布流水线](.github/workflows/release.yml)，自动完成：
+
+1. 构建并推送平台服务镜像到 GitHub Container Registry；
+2. 构建 Windows（x64）与 macOS（arm64）安装包；
+3. 创建 GitHub Release 并附上安装包。
+
+```bash
+# 1. 更新版本号（根 package.json；客户端版本与安装包文件名都取自它）
+# 2. 提交并打 tag
+git tag v0.0.2
+git push origin main --tags
+```
+
+流水线也可以手动触发（Actions → Release → Run workflow），只构建产物、不创建 Release。
+本机打包见下方「打包」章节。
 
 ## 初始化
 
@@ -79,9 +116,9 @@ ZCODE_SERVER_WORKSPACE=/path/to/project pnpm dev:web
 
 该命令同时启动 Web 开发服务器（默认 `http://localhost:5173`）和后端（默认 `http://localhost:3030`）；浏览器访问前者。`/ws` 和一般 `/api` 请求代理到本地后端，`/api/v1/oauth/token` 单独代理到当前配置的产品服务。
 
-Agent 源码修改后，执行 `pnpm --filter @zcode/cli... build` 并重启服务。需要验证完整发行包时，按下方“ZCode 命令行版”打包章节解压运行。
+Agent 源码修改后，执行 `pnpm --filter @zcode/cli... build` 并重启服务。需要验证完整发行包时，按下方“RCode 命令行版”打包章节解压运行。
 
-### ZCode 命令行版
+### RCode 命令行版
 
 命令行发行包包含 TUI、Web 和 Agent，统一使用 `zcode` 启动：无参数进入 TUI；第一个参数为 `--web` 时启动 Web；其他参数交给现有 Agent CLI 处理。两种模式都在本机运行，无需 Electron。
 
@@ -151,13 +188,13 @@ pnpm bundle:desktop -- --help
 
 默认目标为 macOS arm64，默认输出目录为 `packages/desktop/dist/`。`--os` 支持 `mac`、`win`、`linux`，`--arch` 支持 `x64`、`arm64`；实际打包与签名需要目标平台对应的工具和配置。
 
-安装：双击打开产物 DMG，将 ZCode 拖入"应用程序"。本地构建未签名，首次打开若被 macOS 拦截，执行：
+安装：双击打开产物 DMG，将 RCode 拖入"应用程序"。本地构建未签名，首次打开若被 macOS 拦截，执行：
 
 ```bash
-sudo xattr -rd com.apple.quarantine /Applications/ZCode.app
+sudo xattr -rd com.apple.quarantine /Applications/RCode.app
 ```
 
-### ZCode 命令行版
+### RCode 命令行版
 
 构建入口为 `pnpm build:zcode`。脚本会依次构建 CLI/TUI、后端和 Web，收集 TUI 的原生库、worker 与运行时依赖，再组装发行包；运行发行包仍需要 Node.js，版本以 `mise.toml` 为准。
 
@@ -215,8 +252,24 @@ node dist/zcode/debug/zcode/bin/zcode.mjs --web \
 | `packages/services`                                  | 业务服务与持久化                           |
 | `packages/shared`、`packages/rpc`、`packages/client` | 共享协议和类型、RPC 框架、Agent 客户端 SDK |
 | `packages/provider`、`packages/provider-node`        | Provider 公共能力与 Node 实现              |
+| `packages/platform`                                  | 平台服务：账号、模型网关、计费与管理后台    |
 | `apps/zcode-cli`                                     | Agent CLI、TUI、运行时与工具               |
 | `scripts`、`config`、`third-party`                   | 构建维护脚本、内置配置与第三方声明材料     |
+
+## 商业版（平台服务）
+
+本仓库同时提供商业版所需的平台服务：**账号登录、模型网关、余额与套餐、客户端发布**，以及一个网页管理后台。
+客户端仍是发给用户的 Electron 安装包，agent 在用户本机运行；服务端只做账号、配置下发、模型转发、计费与更新分发。
+
+- 规格与接口清单：[specs/platform/](specs/platform/README.md)
+- 部署（Docker + 域名）：[deploy/README.md](deploy/README.md)
+
+两条关键前提：
+
+1. **客户端构建时必须把平台地址烘进产物**（`ZCODE_BASE_URL=https://你的域名 pnpm bundle:desktop`）。
+   production 构建下运行期改不了指向，没烘就会连回厂商域名。
+2. **模型流量必须经过平台网关才能计费**：把模型目录里各 provider 的 `api.baseUrl` 指向
+   `https://你的域名/api/v1/gateway/<providerId>`。上游 API key 只存在服务端，不下发到客户端。
 
 ## 项目声明
 

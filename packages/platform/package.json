@@ -1,0 +1,25 @@
+{
+  "name": "@zcode/platform",
+  "private": true,
+  "type": "module",
+  "description": "ZCode 商业版控制面：账号、模型目录、计费与发布",
+  "exports": {
+    ".": "./src/index.ts",
+    "./contract": "./src/contract.ts"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/adapters/entry.ts",
+    "test": "tsx --test test/*.test.ts",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.11",
+    "hono": "^4.12.9"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^6.0.2"
+  }
+}

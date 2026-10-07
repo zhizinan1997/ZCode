@@ -849,7 +849,7 @@ function createRuntimeUnavailableError(params: ZCodeAgentWorkspaceTarget): Error
   code: typeof ZCODE_AGENT_RUNTIME_UNAVAILABLE_CODE;
   workspaceKey: string;
 } {
-  const error = new Error("ZCode Agent runtime is not running.") as Error & {
+  const error = new Error("RCode Agent runtime is not running.") as Error & {
     code: typeof ZCODE_AGENT_RUNTIME_UNAVAILABLE_CODE;
     workspaceKey: string;
   };

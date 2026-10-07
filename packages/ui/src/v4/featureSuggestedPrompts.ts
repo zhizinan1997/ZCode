@@ -6,9 +6,11 @@ import documentsIcon from "@/assets/plugin-icons/documents.png";
 import pdfIcon from "@/assets/plugin-icons/pdf.png";
 import presentationsIcon from "@/assets/plugin-icons/presentations.png";
 import spreadsheetsIcon from "@/assets/plugin-icons/spreadsheets.png";
+import { resolveOfficialPluginBaseUrl } from "@zcode/shared";
 import type { DraftSuggestedPromptItem } from "@/v4/draftSuggestedPromptItems.js";
 
-const ASSETS = "https://cdn-zcode.z.ai/zcode/official-plugin/assets";
+// 跟随客户端配置的服务地址，不再固定指向厂商 CDN（见 resolveOfficialPluginBaseUrl）。
+const ASSETS = `${resolveOfficialPluginBaseUrl()}/assets`;
 
 type FeatureRecommendedPrompt = DraftSuggestedPromptItem & {
   mode: "office" | "coding";

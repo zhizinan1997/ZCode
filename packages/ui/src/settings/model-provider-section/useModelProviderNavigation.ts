@@ -16,14 +16,12 @@ import {
 } from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import {
-  CODING_PLAN_PROVIDER_SPECS,
   type CodingPlanEntitlementState,
   type ModelProviderNavGroup,
+  type ModelProviderNavItem,
   type PresetProviderSpec,
 } from "@/settings/model-provider-section/constants.js";
-import { pickCodingPlanEntitlementProvider } from "@/lib/codingPlanProvider.js";
 import {
-  createCodingPlanProviderNodeKey,
   createCustomProviderNodeKey,
   createPresetProviderNodeKey,
 } from "@/settings/model-provider-section/utils.js";
@@ -32,14 +30,15 @@ import {
   type ProviderOrderView,
 } from "@/lib/modelProviderOrdering.js";
 import type { EnterpriseCodingPlanProductDisplay } from "@/settings/model-provider-section/enterpriseCodingPlanProducts.js";
-import {
-  buildVisibleFamilyConnectionItems,
-  resolveCodingPlanEntitlementState,
-} from "@/settings/model-provider-section/providerFamilyConnectionVisibility.js";
+import { buildVisibleFamilyConnectionItems } from "@/settings/model-provider-section/providerFamilyConnectionVisibility.js";
 
-interface PresetProviderWithConfig extends PresetProviderSpec {
+/** 供设置页构造空预设列表时复用，避免在调用方重复声明形状。 */
+export interface PresetProviderWithConfig extends PresetProviderSpec {
   provider: ProviderSettingsFormProvider | null;
 }
+
+/** 套餐导航项的具体形状（ModelProviderNavItem 是联合类型，下游按 presetId 取值需收窄）。 */
+type CodingPlanNavItem = Extract<ModelProviderNavItem, { type: "codingPlan" }>;
 
 interface UseModelProviderNavigationOptions {
   presetProviders: PresetProviderWithConfig[];
@@ -89,67 +88,17 @@ export function useModelProviderNavigation({
     return sortModelProvidersForDisplay(allCustomProviders, displayOrder);
   }, [displayOrder, modelProviders]);
 
-  const codingPlanItems = useMemo(
-    () =>
-      CODING_PLAN_PROVIDER_SPECS.filter((spec) =>
-        shouldShowCodingPlanForProviderFamilyDomain(spec.oauthProviderId, providerFamilyDomain),
-      ).map((spec) => {
-        const provider = modelProviders.find((item) => item.providerId === spec.id) ?? null;
-        const accountEntitled = entitledAccountProviderIds.has(spec.id);
-        const entitlementProvider = pickCodingPlanEntitlementProvider(provider);
-        const entitlement = codingPlanEntitlements[spec.id];
-        const state = resolveCodingPlanEntitlementState({
-          providerId: spec.id,
-          accountEntitled,
-          accountAvailability: provider?.accountState?.availability,
-          accountUnavailableReason: provider?.accountState?.unavailableReason,
-          entitlement,
-          modelProvidersLoading,
-        });
+  /**
+   * 商业版不提供厂商编程套餐。
+   *
+   * 模型由平台目录下发，用户不需要在设置里选套餐、也不存在"连接方式"（个人/团队/体验套餐）。
+   * 套餐相关的状态卡、购买入口、额度面板与连接方式选择器**全部以导航项为入口**，
+   * 因此这里不生成任何套餐项，整片厂商套餐界面即不可达。
+   *
+   * 保留变量名与类型，是为了让下游（连接方式项、分组构建、Detail 渲染）无需改动即可自然得到空集合。
+   */
+  const codingPlanItems: CodingPlanNavItem[] = [];
 
-        return {
-          key: createCodingPlanProviderNodeKey(spec.id),
-          type: "codingPlan" as const,
-          presetId: spec.id,
-          oauthProviderId: spec.oauthProviderId,
-          label: isStartPlanModelProviderId(spec.id)
-            ? "Start Plan"
-            : `${spec.providerName} - ${intl.formatMessage({
-                id: "settings.modelProvider.connectionMode.codingPlan",
-              })}`,
-          providerName: spec.providerName,
-          provider: entitlementProvider,
-          accountEntitled,
-          status: state.status,
-          statusLabelId: state.statusLabelId,
-          ...(isStartPlanModelProviderId(spec.id) &&
-          entitlement?.snapshot?.unavailableReason === "not_authenticated"
-            ? {
-                accountLoginRequired: true,
-                statusLabelId: "settings.modelProvider.startPlan.status.loginExpired",
-              }
-            : {}),
-          planLevel: state.planLevel,
-          currentProductId: state.currentProductId,
-          subscriptionBillingCycle: state.subscriptionBillingCycle,
-          subscriptionRenewTime: state.subscriptionRenewTime,
-          subscriptionExpireTime: state.subscriptionExpireTime,
-          subscriptionDetails: state.subscriptionDetails,
-          quotaLimits: state.quotaLimits,
-          mcpQuotaLimit: state.mcpQuotaLimit ?? null,
-          purchaseUrl: spec.purchaseUrl,
-          statusActive: entitlementProvider?.executable === true,
-        };
-      }),
-    [
-      entitledAccountProviderIds,
-      codingPlanEntitlements,
-      intl,
-      modelProviders,
-      modelProvidersLoading,
-      providerFamilyDomain,
-    ],
-  );
   const connectionModeCodingPlanItems = useMemo(
     () =>
       buildVisibleFamilyConnectionItems({
@@ -223,7 +172,9 @@ export function useModelProviderNavigation({
       },
     ];
 
-    return groups;
+    // 商业版去掉了厂商预设与套餐项后，"预设供应商"分组可能为空；
+    // 空分组会在左栏留下一个没有内容的标题，因此直接过滤掉。
+    return groups.filter((group) => group.items.length > 0);
   }, [
     customProviders,
     codingPlanItems,

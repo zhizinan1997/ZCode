@@ -15,7 +15,6 @@ import {
   type ProviderFamilyConnectionSelectionSettings,
   type ProviderFamilyDomain,
   type OAuthProviderId,
-  resolveModelProviderFamilyIdByProviderId,
   resolveModelProviderFamilySpecByProviderId,
   resolveProviderFamilyDomainFromOAuthProvider,
   ZAI_PROVIDER_ID,
@@ -30,7 +29,6 @@ import { useServices } from "@/hooks/useServices.js";
 import { useZCodeStore } from "@/store/StoreProvider.js";
 import { logger } from "@/logger.js";
 import {
-  PRESET_PROVIDER_SPECS,
   PRESET_SUBSCRIPTION_TIMEOUT_MS,
   BIGMODEL_REGISTRATION_URL,
   type CodingPlanStatus,
@@ -40,7 +38,10 @@ import { ModelProviderSectionDetail } from "./model-provider-section/Detail.js";
 import { ModelProviderSectionLayout } from "./model-provider-section/SectionLayout.js";
 import { ProviderTemplatePicker } from "./model-provider-section/ProviderTemplatePicker.js";
 import type { CodingPlanLoginOptions } from "./model-provider-section/codingPlanPricingCards.js";
-import { useModelProviderNavigation } from "./model-provider-section/useModelProviderNavigation.js";
+import {
+  useModelProviderNavigation,
+  type PresetProviderWithConfig,
+} from "./model-provider-section/useModelProviderNavigation.js";
 import { reportPresetSubscriptionSuccess } from "./model-provider-section/oauthActions.js";
 import {
   createCodingPlanProviderNodeKey,
@@ -164,17 +165,6 @@ function resolveBuiltinPresetOAuthProvider(
     return BIGMODEL_PROVIDER_ID;
   }
   return null;
-}
-
-function shouldShowPresetProviderForActiveOAuth(
-  presetId: BuiltinModelProviderId,
-  providerFamilyDomain: ProviderFamilyDomain | null | undefined,
-): boolean {
-  const presetOAuthProvider = resolveBuiltinPresetOAuthProvider(presetId);
-  if (!providerFamilyDomain || !presetOAuthProvider) {
-    return true;
-  }
-  return resolveModelProviderFamilyIdByProviderId(presetId) === providerFamilyDomain;
 }
 
 function clearPendingProviderFamilyConnectionSelection(
@@ -605,16 +595,14 @@ export function ModelProviderSection({
     };
   }, [providerConnectionRefreshSignal, refreshCodingPlanPurchaseTokenState]);
 
-  const presetProviders = useMemo(
-    () =>
-      PRESET_PROVIDER_SPECS.filter((preset) =>
-        shouldShowPresetProviderForActiveOAuth(preset.id, effectiveProviderFamilyDomain),
-      ).map((preset) => ({
-        ...preset,
-        provider: modelProviders.find((provider) => provider.providerId === preset.id) ?? null,
-      })),
-    [effectiveProviderFamilyDomain, modelProviders],
-  );
+  /**
+   * 商业版不展示厂商族预设（智谱 Z.ai / BigModel / Start Plan 等）。
+   *
+   * 那些预设的背后是厂商套餐与账号体系：模型改由平台目录下发，用户不需要在设置里
+   * 连接厂商账号，也没有"选择套餐"这一步。留空后左侧导航只剩用户自建供应商，
+   * 平台下发的模型直接在聊天框的模型选择器里可用。
+   */
+  const presetProviders: PresetProviderWithConfig[] = [];
 
   useEffect(() => {
     if (!presetSubscriptionProviderId) {

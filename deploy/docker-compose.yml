@@ -1,0 +1,67 @@
+# RCode 平台服务编排。
+#
+# 最简用法（仅平台，自己接反向代理）：
+#   1. 在 deploy/ 下创建 .env，至少写入：
+#        ZCODE_PLATFORM_TOKEN_SECRET=<一串足够长的随机值>
+#      （生成：openssl rand -hex 32）
+#   2. docker compose up -d --build
+#   3. 创建首个管理员：
+#        docker compose exec platform node dist/adapters/entry.js \
+#          create-admin you@example.com '你的密码'
+#   4. 浏览器打开 http://127.0.0.1:3100/ 进入管理后台
+#
+# 绑定域名并自动申请 TLS 证书（需要域名已解析到本机，且 80/443 可达）：
+#   ZCODE_PLATFORM_DOMAIN=zcode.example.com \
+#   ZCODE_PLATFORM_PUBLIC_ORIGIN=https://zcode.example.com \
+#   docker compose --profile tls up -d --build
+# 此时客户端要指向 https://zcode.example.com（构建客户端时设置 ZCODE_BASE_URL）。
+
+services:
+  platform:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.platform
+    image: zcode-platform:local
+    restart: unless-stopped
+    environment:
+      # 令牌签名密钥：泄露即可伪造任意用户会话，因此必须显式提供，不设默认值。
+      ZCODE_PLATFORM_TOKEN_SECRET: ${ZCODE_PLATFORM_TOKEN_SECRET:?请设置 ZCODE_PLATFORM_TOKEN_SECRET（openssl rand -hex 32）}
+      # 对外站点地址：用来生成客户端拉取的模型目录与更新产物地址。
+      # 走反向代理时必填，否则服务端只能从请求头推断（请求头可被伪造）。
+      ZCODE_PLATFORM_PUBLIC_ORIGIN: ${ZCODE_PLATFORM_PUBLIC_ORIGIN:-}
+      ZCODE_PLATFORM_LOG_LEVEL: ${ZCODE_PLATFORM_LOG_LEVEL:-info}
+      # 单次模型请求的输出上限；0 表示不限制。用于限制单次预扣敞口。
+      ZCODE_PLATFORM_OUTPUT_TOKEN_CAP: ${ZCODE_PLATFORM_OUTPUT_TOKEN_CAP:-0}
+      ZCODE_PLATFORM_SESSION_TTL_MS: ${ZCODE_PLATFORM_SESSION_TTL_MS:-2592000000}
+    volumes:
+      # 数据库（platform.sqlite）与客户端安装包都在这一个卷里。
+      - platform-data:/data
+    ports:
+      # 默认只发布到宿主回环地址：平台持有上游 API key 与全部用户余额，
+      # 直接暴露到公网必须是有意为之（改 ZCODE_PLATFORM_BIND）或交给下方 Caddy。
+      - "${ZCODE_PLATFORM_BIND:-127.0.0.1}:${ZCODE_PLATFORM_PORT:-3100}:3100"
+
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["tls"]
+    restart: unless-stopped
+    depends_on:
+      - platform
+    environment:
+      # 默认值故意用不可解析的 .invalid 域名：compose 在解析阶段会插值所有服务
+      # （包括未启用 profile 的 caddy），所以这里不能用 `:?` 强制必填——那会让
+      # 最基础的 `docker compose up` 也失败。忘了设置时，Caddy 会因为申请不到
+      # 证书而立刻报错，失败依然是显式的。
+      ZCODE_PLATFORM_DOMAIN: ${ZCODE_PLATFORM_DOMAIN:-zcode.example.invalid}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  platform-data:
+  caddy-data:
+  caddy-config:

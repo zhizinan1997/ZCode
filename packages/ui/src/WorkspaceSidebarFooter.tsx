@@ -54,6 +54,14 @@ import {
 const DESKTOP_ZOOM_MIN_LEVEL = -3;
 const DESKTOP_ZOOM_MAX_LEVEL = 5;
 
+/**
+ * 是否展示厂商套餐等级徽章。
+ *
+ * 徽章取自带宽套餐快照（Coding Plan / Start Plan 的等级与受众）；商业版没有厂商套餐，
+ * 用户的套餐由平台管理员发放，不在侧边栏展示。
+ */
+const SHOW_VENDOR_PLAN_BADGE = false;
+
 function getSidebarProfileName(user?: UserInfo | null): string {
   const displayName = user?.displayName?.trim();
   if (displayName) {
@@ -65,7 +73,7 @@ function getSidebarProfileName(user?: UserInfo | null): string {
     return username;
   }
 
-  return "ZCode";
+  return "RCode";
 }
 
 function getSidebarProfileBadge(
@@ -165,7 +173,10 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
           <span className="min-w-0 truncate text-ui-base font-semibold text-foreground">
             {profileBadge}
           </span>
-          {user ? <WorkspaceSidebarFooterPlanBadge state={usageSummaryState} /> : null}
+          {/* 商业版不展示厂商套餐等级徽章：套餐由平台发放，等级只在管理后台可见。 */}
+          {SHOW_VENDOR_PLAN_BADGE && user ? (
+            <WorkspaceSidebarFooterPlanBadge state={usageSummaryState} />
+          ) : null}
         </div>
       </div>
     </>

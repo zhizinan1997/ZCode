@@ -60,8 +60,8 @@ function generateSelfSignedCa(): { certPem: string; keyPem: string } {
   cert.validity.notAfter = notAfter;
 
   const attrs = [
-    { name: "commonName", value: "ZCode Network CA" },
-    { name: "organizationName", value: "ZCode" },
+    { name: "commonName", value: "RCode Network CA" },
+    { name: "organizationName", value: "RCode" },
   ];
   cert.setSubject(attrs);
   cert.setIssuer(attrs); // 自签：issuer == subject

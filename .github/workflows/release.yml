@@ -1,0 +1,167 @@
+# 版本发布流水线。
+#
+# 触发：推送 v* 形式的 tag（例如 v0.0.1）。也可以手动触发，只构产物不建 Release。
+#
+# 产出：
+#   1. 平台服务镜像 → GitHub Container Registry（ghcr.io/<owner>/rcode-platform）
+#   2. Windows 安装包（NSIS .exe）
+#   3. macOS 安装包（.dmg / .zip）
+#   4. 一个 GitHub Release，附件即上述安装包
+#
+# 客户端要连到你的服务器，必须在仓库里设置变量 ZCODE_BASE_URL（Settings → Variables），
+# 例如 https://rcode.example.com。它会在**构建期**烘进安装包，运行期改不了指向。
+# 未设置时会用占位地址 rcode.example.com 并在日志里给出警告——占位地址既连不上你的服务器，
+# 也不会退回厂商域名，避免把指向厂商的客户端发出去。
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+# contents: 创建 Release；packages: 推送镜像到 ghcr.io
+permissions:
+  contents: write
+  packages: write
+
+env:
+  # 与 mise.toml 锁定的工具链保持一致
+  NODE_VERSION: "24.14.0"
+  PNPM_VERSION: "10.33.2"
+  # 国内镜像加速 Electron 与 electron-builder 二进制下载；失败会自动回退官方源
+  ELECTRON_MIRROR: "https://npmmirror.com/mirrors/electron/"
+
+jobs:
+  docker:
+    name: 平台服务镜像
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: 登录 ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 镜像名用固定标识而不是仓库名：仓库名以后可能改，镜像标签要保持稳定。
+      - name: 解析镜像标签
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/rcode-platform
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short
+
+      - name: 构建并推送
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile.platform
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  desktop:
+    name: 桌面安装包 (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+            target-os: win
+            target-arch: x64
+          # macos-14 起为 Apple Silicon 运行器；产物是 arm64 的 dmg
+          - name: macos-arm64
+            os: macos-14
+            target-os: mac
+            target-arch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      # 客户端指向哪台服务器由构建期决定：production 构建下运行期改不了指向，
+      # 所以这里必须确认地址有效，而不是等发出去才发现连的是占位域名。
+      - name: 确认客户端服务地址
+        shell: bash
+        env:
+          CONFIGURED_BASE_URL: ${{ vars.ZCODE_BASE_URL }}
+        run: |
+          if [ -z "$CONFIGURED_BASE_URL" ]; then
+            echo "::warning title=未配置 ZCODE_BASE_URL::安装包会使用占位地址 https://rcode.example.com，客户端将无法连接任何服务器。请在仓库 Settings → Variables 添加 ZCODE_BASE_URL 后重新发布。"
+            echo "ZCODE_CLIENT_BASE_URL=https://rcode.example.com" >> "$GITHUB_ENV"
+          else
+            echo "客户端服务地址：$CONFIGURED_BASE_URL"
+            echo "ZCODE_CLIENT_BASE_URL=$CONFIGURED_BASE_URL" >> "$GITHUB_ENV"
+          fi
+
+      - name: 构建安装包
+        env:
+          ZCODE_BASE_URL: ${{ env.ZCODE_CLIENT_BASE_URL }}
+        run: pnpm bundle:desktop -- --os ${{ matrix.target-os }} --arch ${{ matrix.target-arch }}
+
+      # 安装包体积大且只在 Release 需要，因此设置较短的保留期。
+      - name: 上传安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.name }}
+          path: |
+            packages/desktop/dist/*.exe
+            packages/desktop/dist/*.dmg
+            packages/desktop/dist/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: 创建 Release
+    needs: [desktop]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: 列出待发布产物
+        run: ls -la release-assets
+
+      # 安装包未签名：macOS 的 Squirrel 会拒绝自动安装，Windows 会被 SmartScreen 拦截。
+      # 因此本次发布以手动分发为主，自动更新要等签名证书到位。
+      - name: 创建 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          body: |
+            安装包未签名：macOS 上系统会拒绝自动安装，Windows 上会被 SmartScreen 拦截，
+            请手动下载分发。平台服务镜像同时发布到 `ghcr.io/${{ github.repository_owner }}/rcode-platform`。
+
+            > 客户端在构建期指向 `${{ vars.ZCODE_BASE_URL || 'https://rcode.example.com（占位地址，未配置仓库变量 ZCODE_BASE_URL）' }}`。

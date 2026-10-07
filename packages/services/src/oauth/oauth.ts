@@ -3,6 +3,7 @@ import type {
   OAuthCallbackResult,
   OAuthProviderId,
   OAuthProviderMeta,
+  OAuthSessionCallbackResult,
   OAuthStartResponse,
   UserInfo,
 } from "@zcode/shared";
@@ -10,14 +11,26 @@ import { ServiceChannels } from "@zcode/shared";
 import { createServiceDescriptor } from "../descriptors.js";
 
 /**
- * OAuth 认证服务
+ * 认证服务
  *
- * 在 host process 中运行，负责 OAuth 流程的全部业务逻辑：
+ * 在 host process 中运行，负责登录流程的全部业务逻辑：
  * provider 管理、state 生命周期、token 交换、凭据存储。
+ * 除厂商 OAuth 外，也承载平台账号的密码登录（见 loginWithPlatformAccount）。
  */
 export interface IOAuthService {
   /** 获取可用 provider 列表（仅返回 enabled=true） */
   getProviders(): Promise<OAuthProviderMeta[]>;
+
+  /**
+   * 平台账号密码登录。
+   *
+   * 不走浏览器与 deep link：凭据由客户端表单提交，host 直接向平台后端换取会话并落盘。
+   * 返回结构与 OAuth 回调成功一致，使 renderer 能复用同一套登录成功处理。
+   */
+  loginWithPlatformAccount(input: {
+    email: string;
+    password: string;
+  }): Promise<OAuthSessionCallbackResult>;
 
   /** 获取当前 active provider */
   getActiveProvider(): Promise<OAuthProviderId | null>;

@@ -459,10 +459,11 @@ export default {
   extraMetadata: {
     version: buildMetadata.appVersion,
     zcodeProductFlavor: desktopProductIdentity.flavor,
-    homepage: "https://zcode.z.ai",
+    homepage: "https://github.com/zhizinan1997/ZCode",
+    // 作者与主页会写进 deb/rpm 的包元数据，因此不能沿用厂商信息。
     author: {
-      name: "ZCode",
-      email: "dev@zcode.z.ai",
+      name: "RCode",
+      email: "zhizinan1997@users.noreply.github.com",
     },
   },
   // macOS 签名阶段会对 Electron Framework 下每个语言包逐个 codesign。

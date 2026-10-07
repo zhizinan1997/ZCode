@@ -1,0 +1,25 @@
+# 平台服务的反向代理与自动 HTTPS。
+#
+# 域名由 docker-compose.yml 的 ZCODE_PLATFORM_DOMAIN 传入。
+# Caddy 会自动申请并续期 Let's Encrypt 证书，因此需要：
+#   1. 域名的 A/AAAA 记录已指向本机；
+#   2. 宿主的 80 与 443 端口对外开放（80 用于 ACME 校验）。
+
+{$ZCODE_PLATFORM_DOMAIN} {
+	# 刻意不开 encode：模型响应是 SSE 流式输出，压缩中间件会缓冲分片，
+	# 导致客户端看到"半天不吐字然后一次性出现"。文本体积的收益远小于这个代价。
+	reverse_proxy platform:3100 {
+		# 流式响应要求逐片透传，禁止代理层做响应缓冲。
+		flush_interval -1
+	}
+
+	# 安装包可能有上百 MB，放宽请求体上限以便在后台直接上传产物。
+	request_body {
+		max_size 2GB
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

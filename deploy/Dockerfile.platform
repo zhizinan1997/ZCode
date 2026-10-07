@@ -1,0 +1,47 @@
+# RCode 平台服务镜像（账号、模型网关、计费、管理后台、客户端发布）。
+#
+# 构建上下文是仓库根目录：
+#   docker build -f deploy/Dockerfile.platform -t zcode-platform .
+#
+# 这里用 npm 而不是 pnpm：平台包对 workspace 没有代码依赖（只有 hono / @hono/node-server
+# 两个运行时依赖），独立安装能让镜像保持很小，也不必把整个 monorepo 的 lockfile 搬进来。
+# 版本范围仍由 packages/platform/package.json 约束。
+
+FROM node:24-alpine AS build
+
+WORKDIR /repo
+# 包内 tsconfig 以 ../../tsconfig.base.json 为基准，因此镜像里保留同样的相对布局。
+COPY tsconfig.base.json ./tsconfig.base.json
+COPY packages/platform/package.json ./packages/platform/package.json
+
+WORKDIR /repo/packages/platform
+RUN npm install --no-audit --no-fund
+
+COPY packages/platform/tsconfig.json ./tsconfig.json
+COPY packages/platform/src ./src
+RUN npx tsc
+
+FROM node:24-alpine AS runtime
+
+WORKDIR /app
+ENV NODE_ENV=production
+# 容器内必须监听 0.0.0.0 才能被 compose 网络里的反向代理访问；
+# 默认只把端口发布到宿主回环地址（见 docker-compose.yml），因此不会直接暴露到公网。
+ENV ZCODE_PLATFORM_HOST=0.0.0.0
+ENV ZCODE_PLATFORM_PORT=3100
+ENV ZCODE_PLATFORM_DATA_DIR=/data
+
+COPY --from=build /repo/packages/platform/node_modules ./node_modules
+COPY --from=build /repo/packages/platform/dist ./dist
+COPY --from=build /repo/packages/platform/package.json ./package.json
+COPY packages/platform/console ./console
+# 产物目录与数据库都落在 /data，由数据卷持有，容器重建不丢数据。
+RUN mkdir -p /data/releases && chown -R node:node /data
+
+USER node
+EXPOSE 3100
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.ZCODE_PLATFORM_PORT||3100)+'/api/health').then(function(r){process.exit(r.ok?0:1)}).catch(function(){process.exit(1)})"
+
+CMD ["node", "dist/adapters/entry.js"]

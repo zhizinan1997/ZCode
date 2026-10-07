@@ -165,6 +165,19 @@ export function buildRuntimeZCodeApiUrl(
   return `${resolveRuntimeZCodeEndpointOrigin(env)}${normalizedPath}`;
 }
 
+/**
+ * 官方插件资源与市场目录的基地址。
+ *
+ * 跟随客户端配置的服务地址，而不再固定指向厂商 CDN：商业部署下客户端不应该
+ * 私下访问你不控制的第三方域名（既不可控，也可能随时下线）。平台若没有托管
+ * 这些路径，插件商店会呈现为空，而不是悄悄去厂商 CDN 取内容。
+ */
+export function resolveOfficialPluginBaseUrl(
+  env: RuntimeZCodeEndpointEnv = readProductEndpointEnv(),
+): string {
+  return `${resolveRuntimeZCodeEndpointOrigin(env)}/zcode/official-plugin`;
+}
+
 export function resolveBigModelApiOrigin(
   env: RuntimeBigModelApiEnv = readProductEndpointEnv(),
 ): string {

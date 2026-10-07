@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RCode 平台管理后台</title>
+    <link rel="stylesheet" href="/console/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="dot"></span>
+        <strong>RCode 平台管理后台</strong>
+      </div>
+      <div class="topbar-right">
+        <span id="current-user" class="muted"></span>
+        <button id="logout-button" class="btn hidden">退出</button>
+      </div>
+    </header>
+
+    <div id="login-view" class="login-wrap">
+      <form id="login-form" class="card login-card">
+        <h1>管理员登录</h1>
+        <p class="muted">平台账号由管理员在后台创建，不开放自助注册。</p>
+        <label for="login-email">邮箱</label>
+        <input id="login-email" type="email" autocomplete="username" required />
+        <label for="login-password">密码</label>
+        <input id="login-password" type="password" autocomplete="current-password" required />
+        <button class="btn primary" type="submit">登录</button>
+        <div id="login-message" class="message"></div>
+      </form>
+    </div>
+
+    <main id="app-view" class="hidden">
+      <nav id="tabs" class="tabs"></nav>
+      <section id="panel" class="panel"></section>
+    </main>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script type="module" src="/console/app.js"></script>
+  </body>
+</html>

@@ -6,10 +6,12 @@ import {
   type ApiClient,
   BIGMODEL_PROVIDER_ID,
   ZAI_PROVIDER_ID,
+  PLATFORM_PROVIDER_ID,
   type OAuthCallbackResult,
   type OAuthCachedSessionRestoreResult,
   type OAuthProviderId,
   type OAuthProviderMeta,
+  type OAuthSessionCallbackResult,
   type OAuthStartResponse,
   type OAuthTokenSet,
   type OAuthUserProfile,
@@ -27,6 +29,10 @@ import {
   withProviderProfileSchema,
 } from "./oauthProfileSchema.js";
 import { createOAuthProviderAdapters, type OAuthProviderAdapter } from "./providers/index.js";
+import {
+  createPlatformAccountProvider,
+  type PlatformAccountProvider,
+} from "./platformAccountProvider.js";
 import { OAuthCredentialRepo } from "./repo/oauthCredentialRepo.js";
 import { createOAuthRuntimeConfig } from "./runtimeConfig.js";
 import {
@@ -66,6 +72,8 @@ interface OAuthFlowEnvelope {
 
 interface OAuthServiceDependencies {
   adapters?: OAuthProviderAdapter[];
+  /** 平台账号 provider；注入点用于测试替换平台地址与传输。 */
+  platformAccount?: PlatformAccountProvider;
   apiClient?: ApiClient;
   now?: () => number;
   env?: NodeJS.ProcessEnv;
@@ -118,6 +126,7 @@ export class OAuthService implements IOAuthService {
   private readonly credentialService: ICredentialService;
   private readonly repo: OAuthCredentialRepo;
   private readonly adapters = new Map<OAuthProviderId, OAuthProviderAdapter>();
+  private readonly platformAccount: PlatformAccountProvider;
   private readonly now: () => number;
   private readonly onProviderLogout?: (
     provider: OAuthProviderId,
@@ -150,11 +159,14 @@ export class OAuthService implements IOAuthService {
         apiClient: dependencies.apiClient,
       });
 
+    this.platformAccount =
+      dependencies.platformAccount ?? createPlatformAccountProvider({ env: dependencies.env });
+
     for (const adapter of adapters) {
       this.adapters.set(adapter.providerId, adapter);
     }
     this.repo = new OAuthCredentialRepo(credentialService, {
-      providerIds: adapters.map((adapter) => adapter.providerId),
+      providerIds: [...adapters.map((adapter) => adapter.providerId), PLATFORM_PROVIDER_ID],
       onCorruptOAuthSessionCleared: async (providers) => {
         // 本地 OAuth 凭据解密失败后等价于强制 logout。
         // repo 只能清 OAuth 命名空间，派生的 Start/Coding Plan provider key 必须回到 service 层清理。
@@ -164,10 +176,44 @@ export class OAuthService implements IOAuthService {
   }
 
   async getProviders(): Promise<OAuthProviderMeta[]> {
-    return [...this.adapters.values()]
-      .map((adapter) => adapter.meta)
+    return [...[...this.adapters.values()].map((adapter) => adapter.meta), this.platformAccount.meta]
       .filter((meta) => meta.enabled)
       .sort((a, b) => a.order - b.order);
+  }
+
+  async loginWithPlatformAccount(input: {
+    email: string;
+    password: string;
+  }): Promise<OAuthSessionCallbackResult> {
+    const email = input.email.trim();
+    if (!email || !input.password) {
+      throw new Error("请输入邮箱与密码");
+    }
+
+    const session = await this.platformAccount
+      .loginWithPassword({ email, password: input.password })
+      .catch((error: unknown) => {
+        throw this.platformAccount.normalizeError(error);
+      });
+
+    await this.runSessionMutation(async () => {
+      this.oauthSessionGeneration += 1;
+      // 先清厂商 provider：它们的 clearProvider 会连带删除共享的 zcodejwttoken，
+      // 必须在写入平台令牌之前完成；反序会把刚保存的会话令牌删掉。
+      await this.repo.clearProvider(BIGMODEL_PROVIDER_ID);
+      await this.repo.clearProvider(ZAI_PROVIDER_ID);
+      await this.repo.saveTokenSet(PLATFORM_PROVIDER_ID, session.tokenSet);
+      await this.repo.saveUserProfile(PLATFORM_PROVIDER_ID, session.profile);
+      await this.repo.setActiveProvider(PLATFORM_PROVIDER_ID);
+    });
+    // 平台登录不经过浏览器 flow，清掉可能残留的厂商 pending，避免旧轮询把会话改回去。
+    await this.cancelPending();
+
+    return {
+      kind: "session",
+      provider: PLATFORM_PROVIDER_ID,
+      userInfo: toUserInfo(session.profile),
+    };
   }
 
   async getActiveProvider(): Promise<OAuthProviderId | null> {
@@ -185,6 +231,10 @@ export class OAuthService implements IOAuthService {
     if (!activeProvider) {
       log("restoreCachedSession skipped: no active provider");
       return { status: "signed-out" };
+    }
+
+    if (activeProvider === PLATFORM_PROVIDER_ID) {
+      return await this.restorePlatformCachedSession(restoreGeneration);
     }
 
     const adapter = this.adapters.get(activeProvider);
@@ -265,6 +315,47 @@ export class OAuthService implements IOAuthService {
     }
 
     log("restoreCachedSession restored:", activeProvider, profile.id);
+    return { status: "authenticated", userInfo: toUserInfo(profile) };
+  }
+
+  /**
+   * 平台账号的启动恢复。
+   *
+   * 与厂商路径同一原则：只读本地缓存，不做远端校验——平台暂时不可达时不能把已登录用户
+   * 踢成未登录。只有会话令牌确实过期才要求重新认证。
+   */
+  private async restorePlatformCachedSession(
+    restoreGeneration: number,
+  ): Promise<OAuthCachedSessionRestoreResult> {
+    const profile = await this.repo.loadUserProfile(PLATFORM_PROVIDER_ID);
+    if (!profile) {
+      log("restoreCachedSession skipped: missing platform cached profile");
+      return { status: "signed-out" };
+    }
+
+    const sessionToken = (await this.credentialService.load(ZCODE_JWT_TOKEN_KEY))?.trim() ?? "";
+    if (!sessionToken) {
+      log("restoreCachedSession skipped: missing platform session token");
+      return { status: "signed-out" };
+    }
+
+    if (resolveJwtExpiration(sessionToken, this.now()).kind === "expired") {
+      serviceLog.info("cached platform session invalidated because session token expired", {
+        provider: PLATFORM_PROVIDER_ID,
+      });
+      const invalidated = await this.invalidateExpiredCachedSession(
+        restoreGeneration,
+        PLATFORM_PROVIDER_ID,
+        profile,
+        sessionToken,
+      );
+      if (!invalidated) {
+        return this.restoreCachedSessionState();
+      }
+      return { status: "reauthentication-required", reason: "jwt-expired" };
+    }
+
+    log("restoreCachedSession restored platform account:", profile.id);
     return { status: "authenticated", userInfo: toUserInfo(profile) };
   }
 
@@ -521,6 +612,10 @@ export class OAuthService implements IOAuthService {
     }
 
     log("restoreSession started:", activeProvider);
+
+    if (activeProvider === PLATFORM_PROVIDER_ID) {
+      return await this.restorePlatformSession();
+    }
 
     const adapter = this.adapters.get(activeProvider);
     if (!adapter || !adapter.meta.enabled) {
@@ -1071,7 +1166,9 @@ export class OAuthService implements IOAuthService {
   }
 
   async logoutAll(): Promise<void> {
-    const providers = [...this.adapters.keys()];
+    // 平台账号不在 adapters 里（它不是 OAuth provider），必须显式加入，
+    // 否则 logoutAll 会留下平台会话。
+    const providers = [...this.adapters.keys(), PLATFORM_PROVIDER_ID];
     const accountIdentities = await this.runSessionMutation(async () => {
       const identities = new Map<OAuthProviderId, string | null>();
       for (const provider of providers) {
@@ -1154,6 +1251,35 @@ export class OAuthService implements IOAuthService {
     }
 
     return this.repo.getActiveProvider();
+  }
+
+  /**
+   * 平台会话的远端校验。平台是自有后端，会话令牌本身就是 bearer；
+   * 明确未授权时按退出流程清理本地登录态，与厂商路径保持同一语义。
+   */
+  private async restorePlatformSession(): Promise<UserInfo | null> {
+    const tokenSet = await this.repo.loadActiveTokenSet();
+    if (!tokenSet?.accessToken) {
+      log("restoreSession failed: missing platform token, logging out");
+      await this.logout();
+      return null;
+    }
+
+    try {
+      const profile = await this.platformAccount.fetchAccount(tokenSet.accessToken);
+      await this.repo.saveActiveUserProfile(profile);
+      await this.repo.setActiveProvider(PLATFORM_PROVIDER_ID);
+      log("restoreSession validated platform account:", profile.id);
+      return toUserInfo(profile);
+    } catch (error) {
+      const normalized = this.platformAccount.normalizeError(error);
+      if (this.isUnauthorizedError(normalized)) {
+        log("restoreSession unauthorized, logging out platform:", normalized.message);
+        await this.logout();
+        return null;
+      }
+      throw normalized;
+    }
   }
 
   private async runWithAdapterError<T>(

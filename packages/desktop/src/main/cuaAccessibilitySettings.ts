@@ -504,7 +504,7 @@ export async function openCuaPermissionOnboarding(
   if (platform !== "darwin") {
     return {
       success: false,
-      error: "ZCode Computer Use permissions are only available on macOS.",
+      error: "RCode Computer Use permissions are only available on macOS.",
     };
   }
   const env = options.env ?? process.env;
@@ -528,7 +528,7 @@ export async function openCuaPermissionOnboarding(
     // 根本不会进到这个 catch；只有真正校验失败才会到这里。
     return {
       success: false,
-      error: `ZCode Computer Use is unavailable (install/verification failed): ${messageOf(error)}`,
+      error: `RCode Computer Use is unavailable (install/verification failed): ${messageOf(error)}`,
     };
   }
 
@@ -541,7 +541,7 @@ export async function openCuaPermissionOnboarding(
     return {
       success: false,
       returnedFromSettings: false,
-      error: `ZCode Computer Use permission identity verification failed: ${messageOf(error)}`,
+      error: `RCode Computer Use permission identity verification failed: ${messageOf(error)}`,
     };
   }
   const verifiedOptions: OpenCuaAccessibilitySettingsOptions = {
@@ -598,7 +598,7 @@ export async function prepareCuaHelperPermissionDrag(
   if (platform !== "darwin") {
     return {
       success: false,
-      error: "ZCode Computer Use permissions are only available on macOS.",
+      error: "RCode Computer Use permissions are only available on macOS.",
     };
   }
   const env = options.env ?? process.env;

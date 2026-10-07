@@ -11,6 +11,15 @@ export const BIGMODEL_PROVIDER_ID = "bigmodel" as const;
 /** 内置 ZAI provider id */
 export const ZAI_PROVIDER_ID = "zai" as const;
 
+/**
+ * 平台账号 provider id。
+ *
+ * 与 zai / bigmodel 不同，它不是厂商 OAuth：用户在客户端表单里提交邮箱密码，
+ * host 直接向平台后端换取会话令牌。它出现在 provider 体系里，是为了复用既有的
+ * 凭据命名空间（oauth:platform:*）与启动恢复链路，而不是为了走浏览器回调。
+ */
+export const PLATFORM_PROVIDER_ID = "platform" as const;
+
 /** 凭据解密失败错误前缀 */
 export const CREDENTIAL_DECRYPT_ERROR_PREFIX = "凭据解密失败：" as const;
 

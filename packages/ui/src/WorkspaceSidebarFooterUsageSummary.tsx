@@ -415,6 +415,15 @@ type WorkspaceSidebarFooterUsageSummaryState = ReturnType<
   typeof useWorkspaceSidebarFooterUsageSummaryState
 >;
 
+/**
+ * 商业版没有厂商编程套餐，因此不展示相关的购买入口与套餐徽章。
+ *
+ * 保留这些分支的代码而不是直接删除，是因为它们与"套餐权益"查询链路共用同一批 hooks
+ * 与状态（useCodingPlanEntryGate、providerEntitlements、套餐快照）；整片删除需要同时
+ * 拆掉那条链路，属于独立的一次清理。这里先保证用户看不到任何厂商套餐入口。
+ */
+const SHOW_VENDOR_PLAN_UPGRADE_ENTRY = false;
+
 export function WorkspaceSidebarFooterUsageSummaryContent({
   state,
   onUsageClick,
@@ -450,9 +459,11 @@ export function WorkspaceSidebarFooterUsageSummaryContent({
         <BarChart3Icon className="size-4" />
         {intl.formatMessage({ id: "sidebar.usage.plan.openStats" })}
       </DropdownMenuItem>
-      {/* 产品要求：升级入口始终显示；未解析出当前套餐时由当前 provider family 决定品牌。 */}
-      <DropdownMenuItem
-        data-testid={TID_SIDEBAR_CODING_PLAN_UPGRADE_BUTTON}
+      {/* 商业版没有厂商套餐，因此不提供"升级/续费"入口：用户的模型与额度来自平台，
+          套餐由管理员发放，客户端不需要引导购买。用量统计入口保留（看的是本地与平台用量）。 */}
+      {SHOW_VENDOR_PLAN_UPGRADE_ENTRY ? (
+        <DropdownMenuItem
+          data-testid={TID_SIDEBAR_CODING_PLAN_UPGRADE_BUTTON}
         disabled={entryGate.status === "loading"}
         aria-busy={entryGate.status === "loading"}
         onSelect={() => {
@@ -476,7 +487,8 @@ export function WorkspaceSidebarFooterUsageSummaryContent({
       >
         <RocketIcon className="size-4" />
         {entryGate.label ?? intl.formatMessage({ id: upgradeActionLabelId })}
-      </DropdownMenuItem>
+        </DropdownMenuItem>
+      ) : null}
     </>
   );
 }

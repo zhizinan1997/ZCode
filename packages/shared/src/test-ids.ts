@@ -25,6 +25,18 @@ export const TID_LOGIN_API_KEY_CANCEL_BUTTON = "login-api-key-cancel-button";
 export const TID_LOGIN_API_KEY_SKIP_BUTTON = "login-api-key-skip-button";
 /** API Key 登录错误提示 */
 export const TID_LOGIN_API_KEY_ERROR = "login-api-key-error";
+/** 登录页切换到平台账号登录方式按钮 */
+export const TID_LOGIN_USE_PLATFORM_ACCOUNT_BUTTON = "login-use-platform-account-button";
+/** 平台账号登录表单容器 */
+export const TID_LOGIN_PLATFORM_FORM = "login-platform-form";
+/** 平台账号邮箱输入框 */
+export const TID_LOGIN_PLATFORM_EMAIL_INPUT = "login-platform-email-input";
+/** 平台账号密码输入框 */
+export const TID_LOGIN_PLATFORM_PASSWORD_INPUT = "login-platform-password-input";
+/** 平台账号登录提交按钮 */
+export const TID_LOGIN_PLATFORM_SUBMIT_BUTTON = "login-platform-submit-button";
+/** 平台账号登录错误提示 */
+export const TID_LOGIN_PLATFORM_ERROR = "login-platform-error";
 /** OAuth 弹窗内的登录按钮 */
 export const TID_OAUTH_LOGIN_BUTTON = "oauth-login-button";
 /** OAuth 弹窗取消按钮 */
