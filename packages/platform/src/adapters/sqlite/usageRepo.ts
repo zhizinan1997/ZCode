@@ -4,6 +4,8 @@
  * 与余额/流水分开是因为两者关注点不同：这里负责"预扣 → 结算"的记录状态机，
  * 而 billingRepo 负责余额的原子增减。预扣用 status='reserved' 的行表达，
  * 因此这里的 settle 用 `WHERE status='reserved'` 做条件更新，天然幂等。
+ *
+ * 需要跨表原子完成的 reserveForRequest / settleWithBilling 在 usageAtomicRepo.ts。
  */
 import type { DatabaseSync } from "node:sqlite";
 import type { UsageRecord, UsageStatus } from "../../domain/billing.js";
@@ -13,6 +15,7 @@ import type {
   UsageSettlement,
   UsageTotals,
 } from "../../app/ports.js";
+import { createSqliteUsageAtomicOperations, readReservedMicros } from "./usageAtomicRepo.js";
 
 interface UsageRow {
   request_id: string;
@@ -103,6 +106,9 @@ function isUniqueViolation(error: unknown): boolean {
 
 export function createSqliteUsageRepository(db: DatabaseSync): UsageRepository {
   return {
+    // 跨表原子事务（预扣准入、结算记账）在 usageAtomicRepo.ts。
+    ...createSqliteUsageAtomicOperations(db),
+
     async insertReservation(record: UsageAppend) {
       try {
         db.prepare(
@@ -152,8 +158,7 @@ export function createSqliteUsageRepository(db: DatabaseSync): UsageRepository {
           settlement.now,
           settlement.requestId,
         );
-      const changes =
-        typeof result.changes === "bigint" ? Number(result.changes) : result.changes;
+      const changes = typeof result.changes === "bigint" ? Number(result.changes) : result.changes;
       return changes > 0;
     },
 
@@ -165,13 +170,7 @@ export function createSqliteUsageRepository(db: DatabaseSync): UsageRepository {
     },
 
     async sumReservedMicros(userId) {
-      const row = db
-        .prepare(
-          `SELECT COALESCE(SUM(cost_micros), 0) AS total FROM usage_records
-            WHERE user_id = ? AND status = 'reserved'`,
-        )
-        .get(userId) as unknown as { total: number };
-      return row.total;
+      return readReservedMicros(db, userId);
     },
 
     async list({ userId, limit, offset, since }) {
@@ -187,9 +186,7 @@ export function createSqliteUsageRepository(db: DatabaseSync): UsageRepository {
       }
       const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
       const rows = db
-        .prepare(
-          `SELECT * FROM usage_records ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-        )
+        .prepare(`SELECT * FROM usage_records ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
         .all(...params, limit, offset) as unknown as UsageRow[];
       return rows.map(toUsageRecord);
     },
@@ -268,6 +265,35 @@ export function createSqliteUsageRepository(db: DatabaseSync): UsageRepository {
       return rows.map((row) => ({ userId: row.user_id, totals: readTotalsRow(row) }));
     },
 
+    async aggregateByModel({ since, limit }) {
+      const conditions: string[] = [SETTLED_PREDICATE, "model_id IS NOT NULL"];
+      const params: (string | number)[] = [];
+      if (since !== undefined) {
+        conditions.push("created_at >= ?");
+        params.push(since);
+      }
+      const rows = db
+        .prepare(
+          `SELECT
+             model_id,
+             COUNT(*) AS request_count,
+             COALESCE(SUM(input_tokens), 0) AS input_tokens,
+             COALESCE(SUM(output_tokens), 0) AS output_tokens,
+             COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+             COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
+             COALESCE(SUM(cost_micros), 0) AS cost_micros,
+             COALESCE(SUM(CASE WHEN status = 'upstream_error' THEN 1 ELSE 0 END), 0) AS error_count
+           FROM usage_records WHERE ${conditions.join(" AND ")}
+           GROUP BY model_id
+           ORDER BY cost_micros DESC
+           LIMIT ?`,
+        )
+        .all(...params, limit) as unknown as (Parameters<typeof readTotalsRow>[0] & {
+        model_id: string;
+      })[];
+      return rows.map((row) => ({ modelId: row.model_id, totals: readTotalsRow(row) }));
+    },
+
     async releaseStaleReservations({ olderThan, now }) {
       const result = db
         .prepare(
@@ -279,10 +305,8 @@ export function createSqliteUsageRepository(db: DatabaseSync): UsageRepository {
            WHERE status = 'reserved' AND created_at < ?`,
         )
         .run(now, olderThan);
-      const changes =
-        typeof result.changes === "bigint" ? Number(result.changes) : result.changes;
+      const changes = typeof result.changes === "bigint" ? Number(result.changes) : result.changes;
       return changes;
     },
   };
 }
-

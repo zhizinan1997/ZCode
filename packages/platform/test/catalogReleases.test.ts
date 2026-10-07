@@ -28,7 +28,10 @@ function createMemoryCatalog(): CatalogRepository {
   };
 }
 
-function validCatalog(revision: number, baseUrl = "https://platform.test/api/v1/gateway/anthropic"): string {
+function validCatalog(
+  revision: number,
+  baseUrl = "https://platform.test/api/v1/gateway/anthropic",
+): string {
   return JSON.stringify({
     schemaVersion: 1,
     revision,
@@ -40,12 +43,21 @@ function validCatalog(revision: number, baseUrl = "https://platform.test/api/v1/
           {
             providerId: "anthropic",
             providerName: "Anthropic",
-            config: { api: { type: "anthropic-messages", baseUrl } },
-            models: [{ modelId: "claude-test" }],
+            // 客户端严格 schema 里 provider 的可见模型清单是 config.builtinModelIds（审计#20）
+            config: {
+              api: { type: "anthropic-messages", baseUrl },
+              builtinModelIds: ["claude-test"],
+            },
           },
         ],
       },
-      modelConfigRules: { modelRules: [], builtinProviderModelRules: [] },
+      modelConfigRules: {
+        modelRules: [],
+        modelApiRules: [],
+        providerSiteRules: [],
+        templateModelRules: [],
+        builtinProviderModelRules: [],
+      },
     },
   });
 }
@@ -54,6 +66,80 @@ test("目录校验：合法目录返回摘要", () => {
   const service = createCatalogService({ catalog: createMemoryCatalog(), now: () => 0 });
   const summary = service.summarize(validCatalog(1));
   assert.deepEqual(summary, { revision: 1, providerCount: 1, modelCount: 1 });
+});
+
+test("目录摘要：模型数统计 config.builtinModelIds 而不是条目上的 models 字段（审计#20）", () => {
+  const service = createCatalogService({ catalog: createMemoryCatalog(), now: () => 0 });
+  // 两个 provider、各带两个模型；其中一份还带着旧实现误读的 models 字段（客户端严格 schema
+  // 里没有它，但平台侧宽松校验只按真实字段统计，不因多余字段拒绝）。
+  const content = JSON.stringify({
+    schemaVersion: 1,
+    revision: 1,
+    config: {
+      providerConfigRules: {
+        templateRules: [],
+        providerRules: [
+          {
+            providerId: "a",
+            config: {
+              api: { type: "anthropic-messages", baseUrl: "https://a.test" },
+              builtinModelIds: ["m1", "m2"],
+            },
+          },
+          {
+            providerId: "b",
+            models: [{ modelId: "legacy" }],
+            config: {
+              api: { type: "openai-chat-completions", baseUrl: "https://b.test" },
+              builtinModelIds: ["m3", "m4"],
+            },
+          },
+        ],
+      },
+      modelConfigRules: {
+        modelRules: [],
+        modelApiRules: [],
+        providerSiteRules: [],
+        templateModelRules: [],
+        builtinProviderModelRules: [],
+      },
+    },
+  });
+  assert.deepEqual(service.summarize(content), { revision: 1, providerCount: 2, modelCount: 4 });
+});
+
+test("目录摘要：builtinModelIds 不是字符串数组时拒绝（客户端会整份拒绝）", () => {
+  const service = createCatalogService({ catalog: createMemoryCatalog(), now: () => 0 });
+  const broken = JSON.stringify({
+    schemaVersion: 1,
+    revision: 1,
+    config: {
+      providerConfigRules: {
+        templateRules: [],
+        providerRules: [
+          {
+            providerId: "a",
+            config: {
+              api: { type: "anthropic-messages", baseUrl: "https://a.test" },
+              builtinModelIds: ["m1", 42],
+            },
+          },
+        ],
+      },
+      modelConfigRules: {
+        modelRules: [],
+        modelApiRules: [],
+        providerSiteRules: [],
+        templateModelRules: [],
+        builtinProviderModelRules: [],
+      },
+    },
+  });
+  assert.throws(
+    () => service.summarize(broken),
+    (error: unknown) =>
+      error instanceof PlatformError && /builtinModelIds 必须是非空字符串数组/.test(error.message),
+  );
 });
 
 test("目录校验：顶层出现 providerConfigRules 会被拒绝（必须嵌在 config 下）", () => {
@@ -68,8 +154,7 @@ test("目录校验：顶层出现 providerConfigRules 会被拒绝（必须嵌�
   });
   assert.throws(
     () => service.summarize(wrong),
-    (error: unknown) =>
-      error instanceof PlatformError && /必须放在 config 下/.test(error.message),
+    (error: unknown) => error instanceof PlatformError && /必须放在 config 下/.test(error.message),
   );
 });
 
@@ -96,19 +181,44 @@ test("目录校验：schemaVersion、revision、baseUrl 都必须合法", () => 
     ["不是 JSON", "{broken"],
     [
       "schemaVersion 非 1",
-      JSON.stringify({ schemaVersion: 2, revision: 1, config: { providerConfigRules: { providerRules: [] }, modelConfigRules: { modelRules: [] } } }),
+      JSON.stringify({
+        schemaVersion: 2,
+        revision: 1,
+        config: {
+          providerConfigRules: { providerRules: [] },
+          modelConfigRules: { modelRules: [] },
+        },
+      }),
     ],
     [
       "revision 非正整数",
-      JSON.stringify({ schemaVersion: 1, revision: 0, config: { providerConfigRules: { providerRules: [] }, modelConfigRules: { modelRules: [] } } }),
+      JSON.stringify({
+        schemaVersion: 1,
+        revision: 0,
+        config: {
+          providerConfigRules: { providerRules: [] },
+          modelConfigRules: { modelRules: [] },
+        },
+      }),
     ],
     [
       "providerRules 不是数组",
-      JSON.stringify({ schemaVersion: 1, revision: 1, config: { providerConfigRules: { providerRules: {} }, modelConfigRules: { modelRules: [] } } }),
+      JSON.stringify({
+        schemaVersion: 1,
+        revision: 1,
+        config: {
+          providerConfigRules: { providerRules: {} },
+          modelConfigRules: { modelRules: [] },
+        },
+      }),
     ],
     [
       "modelRules 缺失",
-      JSON.stringify({ schemaVersion: 1, revision: 1, config: { providerConfigRules: { providerRules: [] }, modelConfigRules: {} } }),
+      JSON.stringify({
+        schemaVersion: 1,
+        revision: 1,
+        config: { providerConfigRules: { providerRules: [] }, modelConfigRules: {} },
+      }),
     ],
     [
       "provider 缺 baseUrl",
@@ -127,7 +237,9 @@ test("目录校验：schemaVersion、revision、baseUrl 都必须合法", () => 
         schemaVersion: 1,
         revision: 1,
         config: {
-          providerConfigRules: { providerRules: [{ config: { api: { baseUrl: "https://a.test" } } }] },
+          providerConfigRules: {
+            providerRules: [{ config: { api: { baseUrl: "https://a.test" } } }],
+          },
           modelConfigRules: { modelRules: [] },
         },
       }),
@@ -150,14 +262,66 @@ test("目录 revision 必须递增：不递增客户端根本不会应用", asyn
 
   await assert.rejects(
     () => service.update({ content: validCatalog(5), expectedRevision: 5, updatedBy: null }),
-    /必须大于当前值/,
+    /必须大于/,
   );
   await assert.rejects(
     () => service.update({ content: validCatalog(3), expectedRevision: 5, updatedBy: null }),
-    /必须大于当前值/,
+    /必须大于/,
   );
-  const next = await service.update({ content: validCatalog(6), expectedRevision: 5, updatedBy: null });
+  const next = await service.update({
+    content: validCatalog(6),
+    expectedRevision: 5,
+    updatedBy: null,
+  });
   assert.equal(next, 6);
+});
+
+test("revision 下限包含内置目录 revision：库内为空也不接受低于内置的 revision（审计#20）", async () => {
+  const catalog = createMemoryCatalog();
+  // 与真实部署一致：内置目录 revision 是 30（config/provider/zcode-builtin.json）。
+  const service = createCatalogService({
+    catalog,
+    now: () => 0,
+    builtin: { revision: 30, content: "{}" },
+  });
+  // 客户端在内置（30）与远程之间取较大者：revision 30 及以下永远不会生效。
+  await assert.rejects(
+    () => service.update({ content: validCatalog(30), expectedRevision: null, updatedBy: null }),
+    (error: unknown) =>
+      error instanceof PlatformError &&
+      /必须大于 30（当前值与内置目录 revision 的较大者）/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.update({ content: validCatalog(29), expectedRevision: null, updatedBy: null }),
+    /必须大于 30/,
+  );
+  const written = await service.update({
+    content: validCatalog(31),
+    expectedRevision: null,
+    updatedBy: null,
+  });
+  assert.equal(written, 31);
+});
+
+test("revision 下限取库内当前值与内置 revision 的较大者", async () => {
+  const catalog = createMemoryCatalog();
+  const service = createCatalogService({
+    catalog,
+    now: () => 0,
+    builtin: { revision: 30, content: "{}" },
+  });
+  // 库内已经推到 40：下限跟随库内当前值，而不是被内置 revision 拉回去。
+  await service.update({ content: validCatalog(40), expectedRevision: null, updatedBy: null });
+  await assert.rejects(
+    () => service.update({ content: validCatalog(40), expectedRevision: 40, updatedBy: null }),
+    /必须大于 40/,
+  );
+  const written = await service.update({
+    content: validCatalog(41),
+    expectedRevision: 40,
+    updatedBy: null,
+  });
+  assert.equal(written, 41);
 });
 
 test("并发编辑：expectedRevision 不匹配时拒绝覆盖", async () => {
@@ -256,7 +420,10 @@ test("发布：sha512 必须是 base64 的 64 字节摘要", async () => {
     /base64 编码的 64 字节摘要/,
   );
   await assert.rejects(() => service.upsert({ ...base, version: "abc" }), /版本号格式不正确/);
-  await assert.rejects(() => service.upsert({ ...base, fileName: "../evil.exe" }), /不能包含路径分隔符/);
+  await assert.rejects(
+    () => service.upsert({ ...base, fileName: "../evil.exe" }),
+    /不能包含路径分隔符/,
+  );
 });
 
 test("manifest：包含 version 与 sha512，URL 是相对路径", async () => {

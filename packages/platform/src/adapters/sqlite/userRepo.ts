@@ -45,9 +45,7 @@ function toRecord(row: UserRow): UserRecord {
 export function createSqliteUserRepository(db: DatabaseSync): UserRepository {
   return {
     async insert(user) {
-      db.prepare(
-        `INSERT INTO users (${SELECT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
+      db.prepare(`INSERT INTO users (${SELECT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
         user.id,
         user.email,
         user.displayName,
@@ -101,6 +99,14 @@ export function createSqliteUserRepository(db: DatabaseSync): UserRepository {
       return row !== undefined;
     },
 
+    async countActiveWithRole(role) {
+      // 审计#11：计数在 SQL 内完成，避免用分页列表推断"最后一个启用管理员"。
+      const row = db
+        .prepare("SELECT COUNT(*) AS total FROM users WHERE role = ? AND status = 'active'")
+        .get(role) as unknown as { total: number };
+      return row.total;
+    },
+
     async list({ limit, offset }) {
       const rows = db
         .prepare(`SELECT ${SELECT_COLUMNS} FROM users ORDER BY created_at ASC LIMIT ? OFFSET ?`)
@@ -113,6 +119,30 @@ export function createSqliteUserRepository(db: DatabaseSync): UserRepository {
         total: number;
       };
       return row.total;
+    },
+
+    async search({ q, limit, offset }) {
+      const pattern = `%${q.trim()}%`;
+      const rows = db
+        .prepare(
+          `SELECT ${SELECT_COLUMNS} FROM users
+           WHERE email LIKE ? OR display_name LIKE ?
+           ORDER BY created_at ASC LIMIT ? OFFSET ?`,
+        )
+        .all(pattern, pattern, limit, offset) as unknown as UserRow[];
+      return rows.map(toRecord);
+    },
+
+    async countSearch({ q }) {
+      const pattern = `%${q.trim()}%`;
+      const row = db
+        .prepare("SELECT COUNT(*) AS total FROM users WHERE email LIKE ? OR display_name LIKE ?")
+        .get(pattern, pattern) as unknown as { total: number };
+      return row.total;
+    },
+
+    async remove(userId) {
+      db.prepare("DELETE FROM users WHERE id = ?").run(userId);
     },
   };
 }

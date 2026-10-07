@@ -2,7 +2,7 @@
  * 套餐与订阅用例。
  *
  * 套餐是运营抓手：管理员定义额度与可用模型，再把套餐发给用户。
- * 计费口径不因套餐而改变——额度用尽后仍按余额扣费（见 billingService.chargeUsage）。
+ * 计费口径不因套餐而改变——额度用尽后仍按余额扣费（见 usageRepo.settleWithBilling 的结算事务）。
  */
 import { PlatformError } from "../domain/errors.js";
 import type { Micros } from "../domain/money.js";

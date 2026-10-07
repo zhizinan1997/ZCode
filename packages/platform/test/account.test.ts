@@ -4,9 +4,7 @@ import type { PlatformRuntime } from "../src/adapters/composition.js";
 import { PlatformError } from "../src/domain/errors.js";
 import { createTestRuntime } from "./helpers.js";
 
-async function withRuntime(
-  run: (runtime: PlatformRuntime) => Promise<void>,
-): Promise<void> {
+async function withRuntime(run: (runtime: PlatformRuntime) => Promise<void>): Promise<void> {
   const runtime = await createTestRuntime();
   try {
     await run(runtime);
@@ -222,7 +220,10 @@ test("未知用户的操作返回 user_not_found", async () => {
       () => accounts.setUserStatus({ userId: "usr_missing", status: "disabled" }),
       expectCode("user_not_found"),
     );
-    await assert.rejects(() => accounts.resetPassword("usr_missing", PASSWORD), expectCode("user_not_found"));
+    await assert.rejects(
+      () => accounts.resetPassword("usr_missing", PASSWORD),
+      expectCode("user_not_found"),
+    );
   });
 });
 
@@ -233,7 +234,10 @@ test("令牌过期后鉴权失败", async () => {
     await runtime.accounts.createUser({ email: "user@example.com", password: PASSWORD });
     const login = await runtime.accounts.login({ email: "user@example.com", password: PASSWORD });
     await new Promise((resolve) => setTimeout(resolve, 5));
-    await assert.rejects(() => runtime.accounts.authenticate(login.token), expectCode("unauthorized"));
+    await assert.rejects(
+      () => runtime.accounts.authenticate(login.token),
+      expectCode("unauthorized"),
+    );
   } finally {
     runtime.dispose();
   }

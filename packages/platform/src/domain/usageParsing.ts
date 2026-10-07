@@ -6,8 +6,9 @@
  *   缓存命中是 `cache_read_input_tokens`，缓存写入是 `cache_creation_input_tokens`。
  *   流式下输入用量在 `message_start` 事件里，输出用量在最后的 `message_delta` 里累计。
  * - OpenAI 兼容：`usage.prompt_tokens` / `completion_tokens`；
- *   缓存命中在 `prompt_tokens_details.cached_tokens`。
- *   流式下只有显式请求了 usage 才会在最后带一个 usage 块，缺失时按未知处理。
+ *   缓存命中在 `prompt_tokens_details.cached_tokens`（Responses API 在 `input_tokens_details`）。
+ *   流式下只有显式请求了 usage 才会在最后带一个 usage 块，缺失时按未知处理；
+ *   Responses API 的用量在 `response.completed` 事件的 `payload.response.usage`。
  *
  * 解析必须宽松：上游字段缺失或改名不应让网关报错，宁可记为未知用量（0）。
  */
@@ -42,7 +43,13 @@ function readAnthropicUsage(usage: Record<string, unknown>): TokenUsage {
 }
 
 function readOpenAiUsage(usage: Record<string, unknown>): TokenUsage {
-  const details = isRecord(usage["prompt_tokens_details"]) ? usage["prompt_tokens_details"] : null;
+  // Chat Completions 用 prompt_tokens_details，Responses API 用 input_tokens_details；
+  // 两处的 cached_tokens 都是缓存命中档，漏掉会把缓存读按全价输入计费。
+  const details = isRecord(usage["prompt_tokens_details"])
+    ? usage["prompt_tokens_details"]
+    : isRecord(usage["input_tokens_details"])
+      ? usage["input_tokens_details"]
+      : null;
   const cachedFromDetails = details ? readNonNegativeInt(details["cached_tokens"]) : 0;
   const cached = cachedFromDetails || readNonNegativeInt(usage["cache_read_input_tokens"]);
   return {
@@ -53,12 +60,32 @@ function readOpenAiUsage(usage: Record<string, unknown>): TokenUsage {
   };
 }
 
+/**
+ * 取 OpenAI 兼容响应里的 usage 块。
+ *
+ * Chat Completions 在顶层 `usage`；Responses API（含流式的 `response.completed` 事件）
+ * 把它放在 `payload.response.usage` 里，两处都要认，否则 Responses 请求会漏计量（审计#2）。
+ */
+function readOpenAiUsageBlock(payload: Record<string, unknown>): Record<string, unknown> | null {
+  if (isRecord(payload["usage"])) {
+    return payload["usage"];
+  }
+  const response = payload["response"];
+  if (isRecord(response) && isRecord(response["usage"])) {
+    return response["usage"];
+  }
+  return null;
+}
+
 export function readUsageFromJson(protocol: GatewayProtocol, payload: unknown): TokenUsage {
-  if (!isRecord(payload) || !isRecord(payload["usage"])) {
+  if (!isRecord(payload)) {
     return EMPTY_USAGE;
   }
-  const usage = payload["usage"];
-  return protocol === "anthropic" ? readAnthropicUsage(usage) : readOpenAiUsage(usage);
+  if (protocol === "anthropic") {
+    return isRecord(payload["usage"]) ? readAnthropicUsage(payload["usage"]) : EMPTY_USAGE;
+  }
+  const usage = readOpenAiUsageBlock(payload);
+  return usage ? readOpenAiUsage(usage) : EMPTY_USAGE;
 }
 
 type UsageReducer = (current: TokenUsage, next: TokenUsage) => TokenUsage;
@@ -134,9 +161,11 @@ function readUsageFromSseChunk(protocol: GatewayProtocol, chunk: string): TokenU
       }
       continue;
     }
-    // OpenAI 兼容：usage 只出现在最后一个带 usage 的块里。
-    if (isRecord(payload["usage"])) {
-      merged = mergeUsage(merged, readOpenAiUsage(payload["usage"]));
+    // OpenAI 兼容：Chat Completions 的 usage 在最后一个块里，
+    // Responses API 则包在 response.completed 事件的 response.usage 下。
+    const usage = readOpenAiUsageBlock(payload);
+    if (usage) {
+      merged = mergeUsage(merged, readOpenAiUsage(usage));
     }
   }
   return merged;
@@ -163,8 +192,7 @@ export function createSseUsageAccumulator(protocol: GatewayProtocol): SseUsageAc
     push(chunk) {
       pending += chunk;
       const lastBoundary = pending.lastIndexOf("\n\n");
-      const complete =
-        lastBoundary >= 0 ? pending.slice(0, lastBoundary + 2) : "";
+      const complete = lastBoundary >= 0 ? pending.slice(0, lastBoundary + 2) : "";
       if (complete) {
         pending = pending.slice(lastBoundary + 2);
         merged = mergeUsage(merged, readUsageFromSseChunk(protocol, complete));

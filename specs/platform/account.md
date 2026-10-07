@@ -15,15 +15,20 @@
 
 ### 平台侧
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| POST | `/api/auth/login` | 入参 `{email, password}`；成功返回 `{token, expiresAt, user}` |
-| POST | `/api/auth/logout` | 客户端登出，令牌加入撤销列表 |
-| GET | `/api/auth/me` | 校验令牌并返回当前用户与角色 |
-| POST | `/api/auth/password` | 修改自己的密码（需原密码） |
-| POST | `/api/admin/users` | 管理员创建用户（邮箱、密码、角色、初始余额） |
-| POST | `/api/admin/users/:id/password` | 管理员重置密码 |
-| PATCH | `/api/admin/users/:id` | 管理员改角色或停用 |
+| 方法   | 路径                                 | 说明                                                          |
+| ------ | ------------------------------------ | ------------------------------------------------------------- |
+| POST   | `/api/auth/login`                    | 入参 `{email, password}`；成功返回 `{token, expiresAt, user}` |
+| POST   | `/api/auth/logout`                   | 客户端登出，令牌加入撤销列表                                  |
+| GET    | `/api/auth/me`                       | 校验令牌并返回当前用户与角色                                  |
+| POST   | `/api/auth/password`                 | 修改自己的密码（需原密码）                                    |
+| GET    | `/api/admin/users`                   | 分页列表，支持 `q`（邮箱/显示名模糊搜索）、`limit`、`offset`  |
+| POST   | `/api/admin/users`                   | 管理员创建用户（邮箱、密码、角色、初始余额）                  |
+| POST   | `/api/admin/users/:id/password`      | 管理员重置密码                                                |
+| PATCH  | `/api/admin/users/:id`               | 管理员改 `displayName`、`email`、`role` 或 `status`           |
+| DELETE | `/api/admin/users/:id`               | 管理员删除用户（级联清理会话与 API Key）                      |
+| POST   | `/api/admin/users/bulk-subscription` | 批量发放套餐 `{planId, userIds}`                              |
+
+自我保护：系统必须始终保留至少一名可用管理员。当目标用户是最后一个 `active` 管理员时，`PATCH` 把 `role` 降为 `user`、把 `status` 改为 `disabled`、以及 `DELETE` 该用户都会被拒绝（`conflict`）。管理员任何时候都不能停用/降级/删除自己（一律 `403 forbidden`，见 [security-hardening.md](security-hardening.md) B2，本条以该文件为准）。
 
 失败语义：邮箱不存在、密码错误、账号停用一律返回同一个 `401 invalid_credentials`，不区分原因（避免账号枚举）。
 
@@ -42,11 +47,11 @@
 
 ## 状态与存储
 
-| 数据 | 存放位置 | 备注 |
-| --- | --- | --- |
-| 邮箱、密码哈希、角色、状态 | 平台数据库 `users` | 密码只存 scrypt 派生值 |
-| 登录会话 | 平台数据库 `sessions` | 支持撤销、有过期时间 |
-| 令牌 | 客户端 credential（AES-256-GCM，既有机制） | 明文只在进程内存 |
+| 数据                       | 存放位置                                   | 备注                   |
+| -------------------------- | ------------------------------------------ | ---------------------- |
+| 邮箱、密码哈希、角色、状态 | 平台数据库 `users`                         | 密码只存 scrypt 派生值 |
+| 登录会话                   | 平台数据库 `sessions`                      | 支持撤销、有过期时间   |
+| 令牌                       | 客户端 credential（AES-256-GCM，既有机制） | 明文只在进程内存       |
 
 密码哈希：`node:crypto` 的 `scrypt`，每个用户独立随机 salt，参数固定写入记录（`N=16384, r=8, p=1, keylen=64`），校验用 `timingSafeEqual`。
 
@@ -56,12 +61,12 @@
 
 平台登录**不是 OAuth**：凭据由表单提交给 host，host 直接向平台换取会话。不打开浏览器，没有 deep link 回调。
 
-| 项 | 取值 | 说明 |
-| --- | --- | --- |
-| provider id | `platform` | 出现在 provider 体系里，只为复用凭据命名空间与启动恢复链路 |
-| 访问令牌 | `oauth:platform:access_token` | 与 `zcodejwttoken` 写同一个值 |
-| 用户信息 | `oauth:platform:user_info` | `{id, username(email), displayName, rawProfile}` |
-| 会话令牌 | `zcodejwttoken` | 启动恢复的过期判定读它 |
+| 项          | 取值                          | 说明                                                       |
+| ----------- | ----------------------------- | ---------------------------------------------------------- |
+| provider id | `platform`                    | 出现在 provider 体系里，只为复用凭据命名空间与启动恢复链路 |
+| 访问令牌    | `oauth:platform:access_token` | 与 `zcodejwttoken` 写同一个值                              |
+| 用户信息    | `oauth:platform:user_info`    | `{id, username(email), displayName, rawProfile}`           |
+| 会话令牌    | `zcodejwttoken`               | 启动恢复的过期判定读它                                     |
 
 约定与边界：
 

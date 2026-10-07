@@ -58,36 +58,105 @@ export function buildReleaseDownloadPath(version: string, fileName: string): str
   return `/releases/electron/${encodeURIComponent(version)}/${encodeURIComponent(fileName)}`;
 }
 
-/**
- * 版本比较：只做"谁更新"的判定，不追求完整 semver 语义。
- * 主版本段按数值比较，其余按字符串补零，足以覆盖客户端 semver.gt 的场景。
- */
-export function compareVersions(left: string, right: string): number {
-  const parse = (value: string): number[] =>
-    value
-      .trim()
-      .replace(/^v/i, "")
-      .split(/[.+-]/)
-      .map((part) => {
-        const numeric = Number.parseInt(part, 10);
-        return Number.isFinite(numeric) ? numeric : 0;
-      });
-  const leftParts = parse(left);
-  const rightParts = parse(right);
-  const length = Math.max(leftParts.length, rightParts.length);
+interface ParsedVersion {
+  /** 主版本段；非数字段按 0 处理，保持对历史数据的宽容。 */
+  readonly core: number[];
+  /** 预发布标识符段；无预发布段为 null。 */
+  readonly prerelease: string[] | null;
+}
+
+function parseVersion(value: string): ParsedVersion {
+  // 忽略前导 v 与构建元数据（+ 之后不参与优先级比较）。
+  const withoutPrefix = value.trim().replace(/^v/i, "");
+  const withoutBuild = withoutPrefix.split("+")[0] ?? withoutPrefix;
+  const dashIndex = withoutBuild.indexOf("-");
+  const coreText = dashIndex >= 0 ? withoutBuild.slice(0, dashIndex) : withoutBuild;
+  const prereleaseText = dashIndex >= 0 ? withoutBuild.slice(dashIndex + 1) : "";
+  const core = coreText.split(".").map((part) => {
+    const numeric = Number.parseInt(part, 10);
+    return Number.isFinite(numeric) ? numeric : 0;
+  });
+  return { core, prerelease: prereleaseText.length > 0 ? prereleaseText.split(".") : null };
+}
+
+/** 纯数字标识符按数值比较：去前导零后先比长度再比字典序，避免大数精度问题。 */
+function compareNumericIdentifiers(left: string, right: string): number {
+  const trimmedLeft = left.replace(/^0+/, "") || "0";
+  const trimmedRight = right.replace(/^0+/, "") || "0";
+  if (trimmedLeft.length !== trimmedRight.length) {
+    return trimmedLeft.length > trimmedRight.length ? 1 : -1;
+  }
+  if (trimmedLeft === trimmedRight) {
+    return 0;
+  }
+  return trimmedLeft > trimmedRight ? 1 : -1;
+}
+
+/** 预发布段按 semver 规则逐段比较；段数少者更低（alpha < alpha.1）。 */
+function comparePrerelease(left: readonly string[], right: readonly string[]): number {
+  const length = Math.max(left.length, right.length);
   for (let index = 0; index < length; index += 1) {
-    const leftValue = leftParts[index] ?? 0;
-    const rightValue = rightParts[index] ?? 0;
-    if (leftValue !== rightValue) {
-      return leftValue > rightValue ? 1 : -1;
+    const leftPart = left[index];
+    const rightPart = right[index];
+    if (leftPart === undefined) {
+      return -1;
+    }
+    if (rightPart === undefined) {
+      return 1;
+    }
+    const leftNumeric = /^[0-9]+$/.test(leftPart);
+    const rightNumeric = /^[0-9]+$/.test(rightPart);
+    if (leftNumeric && rightNumeric) {
+      const compared = compareNumericIdentifiers(leftPart, rightPart);
+      if (compared !== 0) {
+        return compared;
+      }
+      continue;
+    }
+    // 数字标识恒低于字母数字标识（1.0.0-2 < 1.0.0-alpha）。
+    if (leftNumeric !== rightNumeric) {
+      return leftNumeric ? -1 : 1;
+    }
+    if (leftPart !== rightPart) {
+      return leftPart > rightPart ? 1 : -1;
     }
   }
   return 0;
 }
 
-export function pickLatestRelease(
-  releases: readonly ReleaseRecord[],
-): ReleaseRecord | null {
+/**
+ * 版本比较：完整 semver 优先级规则（审计#19）。
+ *
+ * 旧实现把 `-`/`+` 后的段当整数丢掉，导致 1.0.0-beta 与 1.0.0 判等，
+ * 预发布版本可能被当成正式版发布给客户端。现在：
+ * 预发布版本低于同号正式版；预发布标识按 semver 逐段比较（数字段数值比、
+ * 数字低于字母数字、非数字段字典序、段数少者更低）；构建元数据不参与比较。
+ */
+export function compareVersions(left: string, right: string): number {
+  const parsedLeft = parseVersion(left);
+  const parsedRight = parseVersion(right);
+  const coreLength = Math.max(parsedLeft.core.length, parsedRight.core.length);
+  for (let index = 0; index < coreLength; index += 1) {
+    const leftValue = parsedLeft.core[index] ?? 0;
+    const rightValue = parsedRight.core[index] ?? 0;
+    if (leftValue !== rightValue) {
+      return leftValue > rightValue ? 1 : -1;
+    }
+  }
+  if (parsedLeft.prerelease === null && parsedRight.prerelease === null) {
+    return 0;
+  }
+  // 有预发布段的一侧更低：1.0.0-beta < 1.0.0。
+  if (parsedLeft.prerelease === null) {
+    return 1;
+  }
+  if (parsedRight.prerelease === null) {
+    return -1;
+  }
+  return comparePrerelease(parsedLeft.prerelease, parsedRight.prerelease);
+}
+
+export function pickLatestRelease(releases: readonly ReleaseRecord[]): ReleaseRecord | null {
   if (releases.length === 0) {
     return null;
   }

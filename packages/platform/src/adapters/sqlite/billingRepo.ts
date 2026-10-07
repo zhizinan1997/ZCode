@@ -25,7 +25,6 @@ interface LedgerRow {
   created_at: number;
 }
 
-
 const LEDGER_KINDS: readonly string[] = ["recharge", "usage", "plan_grant", "adjustment"];
 
 function toLedgerEntry(row: LedgerRow): LedgerEntry {
@@ -43,7 +42,6 @@ function toLedgerEntry(row: LedgerRow): LedgerEntry {
     createdAt: row.created_at,
   };
 }
-
 
 export function createSqliteBillingRepository(db: DatabaseSync): BillingRepository {
   return {
@@ -97,30 +95,28 @@ export function createSqliteBillingRepository(db: DatabaseSync): BillingReposito
     },
 
     async listLedger({ userId, limit, offset }) {
-      const rows = (
-        userId
-          ? db
-              .prepare(
-                `SELECT * FROM ledger_entries WHERE user_id = ?
+      const rows = (userId
+        ? db
+            .prepare(
+              `SELECT * FROM ledger_entries WHERE user_id = ?
                  ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`,
-              )
-              .all(userId, limit, offset)
-          : db
-              .prepare(
-                `SELECT * FROM ledger_entries
+            )
+            .all(userId, limit, offset)
+        : db
+            .prepare(
+              `SELECT * FROM ledger_entries
                  ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`,
-              )
-              .all(limit, offset)
-      ) as unknown as LedgerRow[];
+            )
+            .all(limit, offset)) as unknown as LedgerRow[];
       return rows.map(toLedgerEntry);
     },
 
     async countLedger(userId) {
-      const row = (
-        userId
-          ? db.prepare("SELECT COUNT(*) AS total FROM ledger_entries WHERE user_id = ?").get(userId)
-          : db.prepare("SELECT COUNT(*) AS total FROM ledger_entries").get()
-      ) as unknown as { total: number };
+      const row = (userId
+        ? db.prepare("SELECT COUNT(*) AS total FROM ledger_entries WHERE user_id = ?").get(userId)
+        : db.prepare("SELECT COUNT(*) AS total FROM ledger_entries").get()) as unknown as {
+        total: number;
+      };
       return row.total;
     },
 
@@ -132,6 +128,24 @@ export function createSqliteBillingRepository(db: DatabaseSync): BillingReposito
         .get(userId) as unknown as { total: number };
       return row.total;
     },
+
+    async sumLedgerSince({ kinds, since }) {
+      // kinds 是受控的枚举值（LEDGER_KINDS 子集），IN 占位符参数化，不拼接用户输入。
+      const placeholders = kinds.map(() => "?").join(", ");
+      const row = db
+        .prepare(
+          `SELECT COALESCE(SUM(amount_micros), 0) AS total FROM ledger_entries
+            WHERE created_at >= ? AND kind IN (${placeholders})`,
+        )
+        .get(since, ...kinds) as unknown as { total: number };
+      return row.total;
+    },
+
+    async sumBalances() {
+      const row = db
+        .prepare("SELECT COALESCE(SUM(balance_micros), 0) AS total FROM balances")
+        .get() as unknown as { total: number };
+      return row.total;
+    },
   };
 }
-

@@ -21,22 +21,23 @@
 - 对话分享
 - 反馈上传
 
-清理时同步删除 UI 入口、服务实现与文档/技能中的引用。
+清理时同步删除 UI 入口、服务实现与文档/技能中的引用。域名边界与强制点见
+[brand-boundary.md](brand-boundary.md)。
 
 ## 状态所有者
 
-| 事实 | 唯一所有者 | 客户端角色 | 服务端角色 |
-| --- | --- | --- | --- |
-| 用户身份、角色 | 平台数据库 | 只读缓存（`user_info`） | 唯一写入方 |
-| 登录令牌 | 平台（签发） | 持有（加密存储） | 校验 |
-| 余额、流水 | 平台数据库 | 只读展示 | 唯一写入方 |
-| 套餐与权益 | 平台数据库 | 只读展示 | 唯一写入方 |
-| 模型单价 | 平台数据库 | 不感知 | 唯一写入方 |
-| 模型目录（providers/models） | 平台数据库 | 只读缓存 | 唯一写入方 |
-| 上游 API key | 平台服务端 env/DB | 不持有 | 唯一持有方 |
-| 用量事实 | 网关（平台） | 本机另有一份本地用量，仅供本地统计 | 唯一权威来源 |
-| 客户端版本与产物 | 平台发布库 | 消费 | 唯一发布方 |
-| 对话、项目文件、本机设置 | 用户本机 | 唯一所有者 | 不接触 |
+| 事实                         | 唯一所有者        | 客户端角色                         | 服务端角色   |
+| ---------------------------- | ----------------- | ---------------------------------- | ------------ |
+| 用户身份、角色               | 平台数据库        | 只读缓存（`user_info`）            | 唯一写入方   |
+| 登录令牌                     | 平台（签发）      | 持有（加密存储）                   | 校验         |
+| 余额、流水                   | 平台数据库        | 只读展示                           | 唯一写入方   |
+| 套餐与权益                   | 平台数据库        | 只读展示                           | 唯一写入方   |
+| 模型单价                     | 平台数据库        | 不感知                             | 唯一写入方   |
+| 模型目录（providers/models） | 平台数据库        | 只读缓存                           | 唯一写入方   |
+| 上游 API key                 | 平台服务端 env/DB | 不持有                             | 唯一持有方   |
+| 用量事实                     | 网关（平台）      | 本机另有一份本地用量，仅供本地统计 | 唯一权威来源 |
+| 客户端版本与产物             | 平台发布库        | 消费                               | 唯一发布方   |
+| 对话、项目文件、本机设置     | 用户本机          | 唯一所有者                         | 不接触       |
 
 约束：客户端上的一切限制都只是 UX。客户端可被用户修改，因此**任何授权与计费判定都必须在服务端完成**。
 
@@ -95,26 +96,26 @@ agent：目录文件变更 → 重新解析 provider registry（无需重启）
 
 ## 接口清单
 
-| 路径 | 认证 | 用途 |
-| --- | --- | --- |
-| `POST /api/auth/login` | 无 | 登录换取令牌 |
-| `POST /api/auth/logout` · `GET /api/auth/me` · `POST /api/auth/password` | 用户令牌 | 登出、当前用户、自助改密 |
-| `ALL /api/v1/gateway/:providerId/*` | 用户令牌 | 模型网关：转发上游、计量、限额 |
-| `GET /api/v1/client/configs` | 无 | 客户端配置入口，返回带 revision 的目录地址 |
-| `GET /api/v1/catalog/:revision.json` | 无 | 模型目录全文（内容不可变，可长缓存） |
-| `GET /api/v1/releases/electron/manifest` | 无 | 客户端更新清单（YAML） |
-| `GET /api/v1/billing/me` | 用户令牌 | 客户端展示余额、套餐与用量 |
-| `GET /releases/electron/:version/:fileName` | 无 | 安装包下载 |
-| `GET|POST /api/admin/users` · `GET|PATCH /api/admin/users/:id` | 管理员 | 用户管理 |
-| `POST /api/admin/users/:id/recharge` · `/adjust` · `/password` · `/subscription` | 管理员 | 余额、密码、套餐发放 |
-| `GET /api/admin/users/:id/ledger` · `/usage` · `/reconcile` | 管理员 | 流水、调用记录、对账 |
-| `GET|PUT /api/admin/catalog` | 管理员 | 模型目录编辑（revision 严格递增） |
-| `GET|PUT|DELETE /api/admin/providers[/:id]` | 管理员 | 上游 provider（API key 只写不读） |
-| `GET|PUT|DELETE /api/admin/prices[/:modelId]` | 管理员 | 模型单价 |
-| `GET|POST|PATCH|DELETE /api/admin/plans[/:id]` | 管理员 | 套餐定义 |
-| `GET /api/admin/usage` · `/usage/totals` · `/usage/by-user` | 管理员 | 用量看板 |
-| `GET|PUT|DELETE /api/admin/releases[/:id]` | 管理员 | 发布登记与产物上传（原始二进制 PUT） |
-| `GET /` · `/console/*` | 无（页面内自行登录） | 管理后台网页端 |
+| 路径                                                                             | 认证                        | 用途                                       |
+| -------------------------------------------------------------------------------- | --------------------------- | ------------------------------------------ | --------------------------------- | ------------------------------------ | -------- |
+| `POST /api/auth/login`                                                           | 无                          | 登录换取令牌                               |
+| `POST /api/auth/logout` · `GET /api/auth/me` · `POST /api/auth/password`         | 用户令牌                    | 登出、当前用户、自助改密                   |
+| `ALL /api/v1/gateway/:providerId/*`                                              | 用户令牌                    | 模型网关：转发上游、计量、限额             |
+| `GET /api/v1/client/configs`                                                     | 无                          | 客户端配置入口，返回带 revision 的目录地址 |
+| `GET /api/v1/catalog/:revision.json`                                             | 无                          | 模型目录全文（内容不可变，可长缓存）       |
+| `GET /api/v1/releases/electron/manifest`                                         | 无                          | 客户端更新清单（YAML）                     |
+| `GET /api/v1/billing/me`                                                         | 用户令牌                    | 客户端展示余额、套餐与用量                 |
+| `GET /releases/electron/:version/:fileName`                                      | 无                          | 安装包下载                                 |
+| `GET                                                                             | POST /api/admin/users`·`GET | PATCH /api/admin/users/:id`                | 管理员                            | 用户管理                             |
+| `POST /api/admin/users/:id/recharge` · `/adjust` · `/password` · `/subscription` | 管理员                      | 余额、密码、套餐发放                       |
+| `GET /api/admin/users/:id/ledger` · `/usage` · `/reconcile`                      | 管理员                      | 流水、调用记录、对账                       |
+| `GET                                                                             | PUT /api/admin/catalog`     | 管理员                                     | 模型目录编辑（revision 严格递增） |
+| `GET                                                                             | PUT                         | DELETE /api/admin/providers[/:id]`         | 管理员                            | 上游 provider（API key 只写不读）    |
+| `GET                                                                             | PUT                         | DELETE /api/admin/prices[/:modelId]`       | 管理员                            | 模型单价                             |
+| `GET                                                                             | POST                        | PATCH                                      | DELETE /api/admin/plans[/:id]`    | 管理员                               | 套餐定义 |
+| `GET /api/admin/usage` · `/usage/totals` · `/usage/by-user`                      | 管理员                      | 用量看板                                   |
+| `GET                                                                             | PUT                         | DELETE /api/admin/releases[/:id]`          | 管理员                            | 发布登记与产物上传（原始二进制 PUT） |
+| `GET /` · `/console/*`                                                           | 无（页面内自行登录）        | 管理后台网页端                             |
 
 ## 尚未实现（与本期范围的差额）
 

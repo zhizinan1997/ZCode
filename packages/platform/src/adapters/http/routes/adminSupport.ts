@@ -57,9 +57,7 @@ export function readSinceDays(
   return Date.now() - days * 24 * 60 * 60 * 1000;
 }
 
-export async function readOptionalJsonObject(
-  context: Context,
-): Promise<Record<string, unknown>> {
+export async function readOptionalJsonObject(context: Context): Promise<Record<string, unknown>> {
   return await readJsonObject(context);
 }
 

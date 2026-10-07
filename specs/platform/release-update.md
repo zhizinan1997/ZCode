@@ -20,13 +20,13 @@ Headers:
 
 响应：**YAML**，顶层必须是对象且含字符串 `version`。可用字段：
 
-| 字段 | 必需 | 说明 |
-| --- | --- | --- |
-| `version` | 是 | 版本号，客户端用 semver 与本地版本比较 |
-| `files` | 是 | 数组，每项 `{url, sha512}`（也接受 `sha2`） |
-| `files[].url` | 是 | 相对路径按 manifest 同源根解析（`new URL(url, <origin>/)`），也可给绝对 URL |
-| `packages` | 否 | 按架构索引 `{[arch]: {path, ...}}`，`path` 同样按同源解析 |
-| `releaseName` / `releaseDate` / `releaseNotes` | 否 | 更新弹窗展示用 |
+| 字段                                           | 必需 | 说明                                                                        |
+| ---------------------------------------------- | ---- | --------------------------------------------------------------------------- |
+| `version`                                      | 是   | 版本号，客户端用 semver 与本地版本比较                                      |
+| `files`                                        | 是   | 数组，每项 `{url, sha512}`（也接受 `sha2`）                                 |
+| `files[].url`                                  | 是   | 相对路径按 manifest 同源根解析（`new URL(url, <origin>/)`），也可给绝对 URL |
+| `packages`                                     | 否   | 按架构索引 `{[arch]: {path, ...}}`，`path` 同样按同源解析                   |
+| `releaseName` / `releaseDate` / `releaseNotes` | 否   | 更新弹窗展示用                                                              |
 
 硬性约束：
 
@@ -37,12 +37,12 @@ Headers:
 
 ## 服务端接口
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/api/v1/releases/electron/manifest` | 按 `platform`/`channel` 返回 YAML manifest |
-| GET | `/releases/electron/<version>/<filename>` | 静态产物下载 |
-| POST | `/api/admin/releases` | 管理员登记一次发布（版本、各平台文件名、发布说明、通道） |
-| GET | `/api/admin/releases` | 发布历史 |
+| 方法 | 路径                                      | 说明                                                     |
+| ---- | ----------------------------------------- | -------------------------------------------------------- |
+| GET  | `/api/v1/releases/electron/manifest`      | 按 `platform`/`channel` 返回 YAML manifest               |
+| GET  | `/releases/electron/<version>/<filename>` | 静态产物下载                                             |
+| POST | `/api/admin/releases`                     | 管理员登记一次发布（版本、各平台文件名、发布说明、通道） |
+| GET  | `/api/admin/releases`                     | 发布历史                                                 |
 
 manifest 的 `files[].url` 使用相对路径（`/releases/electron/<version>/<filename>`），由平台按登记记录生成。
 

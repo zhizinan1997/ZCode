@@ -11,6 +11,7 @@ import { Hono } from "hono";
 import type { AccountService } from "../../../app/accountService.js";
 import type { BillingService } from "../../../app/billingService.js";
 import type { CatalogService } from "../../../app/catalogService.js";
+import type { OperationsService } from "../../../app/operationsService.js";
 import type { ReleaseService } from "../../../app/releaseService.js";
 import { PlatformError } from "../../../domain/errors.js";
 import { resolveReleaseChannelFromQuery } from "../../../domain/releases.js";
@@ -54,6 +55,7 @@ export function createPublicApiRoutes(deps: {
   readonly billing: BillingService;
   readonly catalog: CatalogService;
   readonly releases: ReleaseService;
+  readonly operations: OperationsService;
   readonly config: PlatformConfig;
   readonly logger: Logger;
 }): Hono {
@@ -70,7 +72,10 @@ export function createPublicApiRoutes(deps: {
     });
 
   routes.get("/client/configs", async (context) => {
-    const payload = await deps.catalog.buildClientConfigs(resolveOrigin(context));
+    const payload = await deps.catalog.buildClientConfigsWithOperations(
+      resolveOrigin(context),
+      deps.operations,
+    );
     return context.json(payload);
   });
 
@@ -104,10 +109,7 @@ export function createPublicApiRoutes(deps: {
     if (!manifest) {
       // 该平台该通道还没有发布：返回 404 让客户端保持当前版本。
       // 走统一错误处理，保持与其他接口一致的 JSON 错误结构。
-      throw new PlatformError(
-        "not_found",
-        `该平台（${platform}）的 ${channel} 通道还没有发布版本`,
-      );
+      throw new PlatformError("not_found", `该平台（${platform}）的 ${channel} 通道还没有发布版本`);
     }
     return context.body(manifest, 200, {
       "content-type": "application/x-yaml; charset=utf-8",

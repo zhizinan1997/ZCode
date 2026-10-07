@@ -51,13 +51,33 @@ export const DEFAULT_RESERVE_OUTPUT_TOKENS = 8_192;
 export const MIN_RESERVE_MICROS: Micros = 1;
 
 /**
- * 可用余额 = 余额 - 未结算的预扣总额。
+ * 可用额度 = 余额 - 未结算的预扣总额 + 当前有效订阅的剩余额度。
  *
  * 预扣用 usage_records 里 status='reserved' 的行表达，
  * 这样"已发生的上游费用但尚未结算"的部分不会被当成可用余额重复花出去。
+ * 套餐额度同样是可动用的资金，必须计入，否则余额为 0 的套餐用户完全无法调用（审计#5）。
  */
-export function resolveAvailableMicros(balanceMicros: Micros, reservedMicros: Micros): Micros {
-  return Math.max(0, balanceMicros - reservedMicros);
+export function resolveAvailableMicros(
+  balanceMicros: Micros,
+  reservedMicros: Micros,
+  subscriptionRemainingMicros: Micros = 0,
+): Micros {
+  return Math.max(0, balanceMicros - reservedMicros + subscriptionRemainingMicros);
+}
+
+/**
+ * 用请求体字节数粗估输入 token（审计#9）。
+ *
+ * 预扣只按输出估算会让长输入的请求远低于实际费用，余额很小的用户就能穿透到上游。
+ * 比例取 4 字节/token 是一个保守上限：多数中英文混排还会更省 token。
+ */
+export const ESTIMATED_BYTES_PER_INPUT_TOKEN = 4;
+
+export function estimateInputTokensFromBytes(requestBytes: number | null | undefined): number {
+  if (typeof requestBytes !== "number" || !Number.isFinite(requestBytes) || requestBytes <= 0) {
+    return 0;
+  }
+  return Math.ceil(requestBytes / ESTIMATED_BYTES_PER_INPUT_TOKEN);
 }
 
 /**
@@ -71,6 +91,8 @@ export function estimateReserveMicros(input: {
   requestedMaxOutputTokens?: number | null;
   /** 单次请求的输出上限；0 或未设置表示不限制。 */
   outputTokenCap?: number;
+  /** 请求体的字节数；用于估算输入部分（审计#9），缺失时按 0 处理。 */
+  requestBytes?: number | null;
 }): Micros {
   const cap = input.outputTokenCap && input.outputTokenCap > 0 ? input.outputTokenCap : null;
   const requested = input.requestedMaxOutputTokens;
@@ -80,11 +102,11 @@ export function estimateReserveMicros(input: {
     ? cap
       ? Math.min(requested, cap)
       : requested
-    : cap ?? DEFAULT_RESERVE_OUTPUT_TOKENS;
+    : (cap ?? DEFAULT_RESERVE_OUTPUT_TOKENS);
 
   const estimated = computeTokenCostMicros(
     {
-      inputTokens: 0,
+      inputTokens: estimateInputTokensFromBytes(input.requestBytes),
       outputTokens: plannedTokens,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
@@ -92,6 +114,16 @@ export function estimateReserveMicros(input: {
     input.price,
   );
   return Math.max(estimated, MIN_RESERVE_MICROS);
+}
+
+/** 用量是否全为 0；用于"上游没回 usage"的兜底判定（审计#2）。 */
+export function isZeroUsage(usage: TokenUsage): boolean {
+  return (
+    usage.inputTokens === 0 &&
+    usage.outputTokens === 0 &&
+    usage.cacheReadTokens === 0 &&
+    usage.cacheWriteTokens === 0
+  );
 }
 
 /** 结算费用：按实际用量计算，绝不低于 0。 */

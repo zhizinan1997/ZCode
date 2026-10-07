@@ -53,12 +53,25 @@ export function readEnum<T extends string>(
     return undefined;
   }
   if (typeof raw !== "string" || !(allowed as readonly string[]).includes(raw)) {
-    throw new PlatformError(
-      "invalid_request",
-      `${field} 取值非法，允许：${allowed.join(", ")}`,
-    );
+    throw new PlatformError("invalid_request", `${field} 取值非法，允许：${allowed.join(", ")}`);
   }
   return raw as T;
+}
+
+/** 可选布尔字段：缺省取 default，出现时必须是布尔值。 */
+export function readBoolean(
+  body: Record<string, unknown>,
+  field: string,
+  options: { default: boolean },
+): boolean {
+  const raw = body[field];
+  if (raw === undefined || raw === null) {
+    return options.default;
+  }
+  if (typeof raw !== "boolean") {
+    throw new PlatformError("invalid_request", `${field} 必须是布尔值`);
+  }
+  return raw;
 }
 
 export function readPagination(context: Context): { limit: number; offset: number } {

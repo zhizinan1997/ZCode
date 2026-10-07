@@ -19,6 +19,12 @@
       "rules": {
         "max-lines": "off"
       }
+    },
+    {
+      "files": ["packages/platform/console/**/*.js"],
+      "rules": {
+        "max-lines": "off"
+      }
     }
   ],
   "settings": {

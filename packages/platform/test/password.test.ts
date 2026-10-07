@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  hashPassword,
-  verifyPassword,
-} from "../src/adapters/crypto/passwordHash.js";
+import { hashPassword, verifyPassword } from "../src/adapters/crypto/passwordHash.js";
 import { validatePasswordStrength } from "../src/domain/passwordPolicy.js";
 
 test("哈希与校验往返一致", async () => {

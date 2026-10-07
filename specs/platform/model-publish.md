@@ -36,12 +36,12 @@
 
 ## 状态与所有权
 
-| 状态 | 所有者 | 说明 |
-| --- | --- | --- |
-| 发布设置（选了哪些模型、显示名、能力、顺序、客户端协议） | `published_providers` / `published_models` 表（SQLite） | 唯一事实源；`PUT /api/admin/publish` 全量替换 |
-| 已下发目录（含 revision） | `model_catalog` 表（owner 是 catalogService） | 推送时由 buildCatalog 生成后经 catalogService 校验写入，本功能不另写 |
-| 上游 provider 与真实 API key | `gateway_providers` 表（owner 是上游管理） | 本功能只读，拉模型列表时使用，key 不出服务端 |
-| 内置目录基线 | `config/provider/zcode-builtin.json`（镜像内 `/app/builtin/zcode-builtin.json`） | 只读基线；生成时以其为底，追加或替换 provider 层 |
+| 状态                                                     | 所有者                                                                           | 说明                                                                 |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| 发布设置（选了哪些模型、显示名、能力、顺序、客户端协议） | `published_providers` / `published_models` 表（SQLite）                          | 唯一事实源；`PUT /api/admin/publish` 全量替换                        |
+| 已下发目录（含 revision）                                | `model_catalog` 表（owner 是 catalogService）                                    | 推送时由 buildCatalog 生成后经 catalogService 校验写入，本功能不另写 |
+| 上游 provider 与真实 API key                             | `gateway_providers` 表（owner 是上游管理）                                       | 本功能只读，拉模型列表时使用，key 不出服务端                         |
+| 内置目录基线                                             | `config/provider/zcode-builtin.json`（镜像内 `/app/builtin/zcode-builtin.json`） | 只读基线；生成时以其为底，追加或替换 provider 层                     |
 
 事件顺序（apply）：
 
@@ -59,14 +59,14 @@
 
 ```jsonc
 {
-  "providerId": "platform:<gatewayProviderId>",   // 与内置 provider 重名直接报错
+  "providerId": "platform:<gatewayProviderId>", // 与内置 provider 重名直接报错
   "providerName": "<上游的显示名>",
   "config": {
-    "group": "zai-family",                        // 内置 provider 只允许两个厂商族之一
+    "group": "zai-family", // 内置 provider 只允许两个厂商族之一
     "builtinModelIds": ["<显示名1>", "<显示名2>"], // 顺序即客户端展示顺序
     "access": { "type": "api-key", "apiKey": "platform-gateway-managed" }, // 占位 key，真实 key 由网关注入
-    "api": { "type": "<客户端协议>", "baseUrl": "<origin>/api/v1/gateway/<gatewayProviderId>" }
-  }
+    "api": { "type": "<客户端协议>", "baseUrl": "<origin>/api/v1/gateway/<gatewayProviderId>" },
+  },
 }
 ```
 
@@ -80,13 +80,14 @@
 
 ## 接口（均需管理员）
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
+| 方法 | 路径                                    | 说明                                                                                                                        |
+| ---- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | POST | `/api/admin/providers/:id/fetch-models` | 拉上游模型列表；openai 协议先试 `<base>/v1/models` 再退 `<base>/models`，回退成功且 base 缺 `/v1` 时返回 `suggestedBaseUrl` |
-| GET | `/api/admin/publish` | 读取发布设置（未保存过时为空数组） |
-| PUT | `/api/admin/publish` | 全量保存发布设置（服务端 normalize 校验） |
-| POST | `/api/admin/publish/preview` | 按当前设置生成目录，返回 `revision`、摘要与完整 JSON，不写库 |
-| POST | `/api/admin/publish/apply` | 生成并写入新 revision（请求体可选 `keepBuiltinProviders`，默认 true） |
+| GET  | `/api/admin/catalog/builtin`            | 内置目录摘要（provider/模型清单、能力预填、思考档位词表），供发布页展示与预填                                               |
+| GET  | `/api/admin/publish`                    | 读取发布设置（未保存过时为空数组）                                                                                          |
+| PUT  | `/api/admin/publish`                    | 全量保存发布设置（服务端 normalize 校验）                                                                                   |
+| POST | `/api/admin/publish/preview`            | 按当前设置生成目录，返回 `revision`、摘要与完整 JSON，不写库                                                                |
+| POST | `/api/admin/publish/apply`              | 生成并写入新 revision（请求体可选 `keepBuiltinProviders`，默认 true）                                                       |
 
 失败语义：
 
@@ -96,12 +97,12 @@
   https 时拒绝（客户端只接受 https 目录地址）。
 - 目录校验、revision 递增、并发冲突的语义与 [model-catalog.md](model-catalog.md) 完全一致。
 
-## 数据模型（迁移 0004_model_publish）
+## 数据模型（迁移 0005_model_publish）
 
-| 表 | 字段要点 |
-| --- | --- |
-| `published_providers` | `provider_id`（= gateway_providers.id）、`client_protocol`（三选一 CHECK）、审计字段 |
-| `published_models` | 主键 `(provider_id, upstream_model_id)`；`display_name` 唯一索引（同上游内）；`position` 决定顺序；能力列 `context_window / supports_image / supports_pdf / supports_video / supports_audio / supports_tool_call / reasoning_levels_json / max_output_tokens` |
+| 表                    | 字段要点                                                                                                                                                                                                                                                      |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `published_providers` | `provider_id`（= gateway_providers.id）、`client_protocol`（三选一 CHECK）、审计字段                                                                                                                                                                          |
+| `published_models`    | 主键 `(provider_id, upstream_model_id)`；`display_name` 唯一索引（同上游内）；`position` 决定顺序；能力列 `context_window / supports_image / supports_pdf / supports_video / supports_audio / supports_tool_call / reasoning_levels_json / max_output_tokens` |
 
 ## 验收
 

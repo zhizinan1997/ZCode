@@ -21,7 +21,7 @@ export function testConfig(overrides: Partial<PlatformConfig> = {}): PlatformCon
     logLevel: "error",
     publicOrigin: "https://platform.test",
     outputTokenCap: 0,
-    upstreamTimeoutMs: 5_000,
+    upstreamIdleTimeoutMs: 5_000,
     consoleDir: TEST_CONSOLE_DIR,
     releasesDir: "/nonexistent-releases",
     ...overrides,

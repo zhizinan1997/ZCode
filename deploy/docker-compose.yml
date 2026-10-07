@@ -31,7 +31,8 @@ services:
       ZCODE_PLATFORM_PUBLIC_ORIGIN: ${ZCODE_PLATFORM_PUBLIC_ORIGIN:-}
       ZCODE_PLATFORM_LOG_LEVEL: ${ZCODE_PLATFORM_LOG_LEVEL:-info}
       # 单次模型请求的输出上限；0 表示不限制。用于限制单次预扣敞口。
-      ZCODE_PLATFORM_OUTPUT_TOKEN_CAP: ${ZCODE_PLATFORM_OUTPUT_TOKEN_CAP:-0}
+      # 默认与代码内默认值一致（32768）：显式传 0 会覆盖代码默认、放开敞口，需要时再改。
+      ZCODE_PLATFORM_OUTPUT_TOKEN_CAP: ${ZCODE_PLATFORM_OUTPUT_TOKEN_CAP:-32768}
       ZCODE_PLATFORM_SESSION_TTL_MS: ${ZCODE_PLATFORM_SESSION_TTL_MS:-2592000000}
     volumes:
       # 数据库（platform.sqlite）与客户端安装包都在这一个卷里。

@@ -2,7 +2,11 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { GatewayProtocol, GatewayProvider } from "../../domain/gateway.js";
 import { isGatewayProtocol } from "../../domain/gateway.js";
-import type { GatewayProviderRepository, ModelPriceRecord, ModelPriceRepository } from "../../app/ports.js";
+import type {
+  GatewayProviderRepository,
+  ModelPriceRecord,
+  ModelPriceRepository,
+} from "../../app/ports.js";
 
 interface ProviderRow {
   id: string;
@@ -41,9 +45,7 @@ function toProvider(row: ProviderRow): GatewayProvider {
   };
 }
 
-export function createSqliteGatewayProviderRepository(
-  db: DatabaseSync,
-): GatewayProviderRepository {
+export function createSqliteGatewayProviderRepository(db: DatabaseSync): GatewayProviderRepository {
   return {
     async list() {
       const rows = db
@@ -53,9 +55,9 @@ export function createSqliteGatewayProviderRepository(
     },
 
     async findById(id) {
-      const row = db
-        .prepare("SELECT * FROM gateway_providers WHERE id = ?")
-        .get(id) as unknown as ProviderRow | undefined;
+      const row = db.prepare("SELECT * FROM gateway_providers WHERE id = ?").get(id) as unknown as
+        | ProviderRow
+        | undefined;
       return row ? toProvider(row) : null;
     },
 

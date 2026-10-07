@@ -22,7 +22,12 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.55 ui-sans-serif, system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font:
+    14px/1.55 ui-sans-serif,
+    system-ui,
+    "Segoe UI",
+    "Microsoft YaHei",
+    sans-serif;
 }
 
 .hidden {
@@ -344,4 +349,122 @@ pre {
   overflow: auto;
   font-size: 12px;
   max-height: 360px;
+}
+
+/* ── 通用弹层 ─────────────────────────────────────────── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+  padding: 16px;
+}
+
+.modal {
+  width: 100%;
+  max-width: 460px;
+  max-height: 85vh;
+  overflow: auto;
+}
+
+.modal h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.modal .field {
+  margin-top: 10px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+/* ── 分页 ─────────────────────────────────────────────── */
+.pagination {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+/* ── 移动端可用性：表格横向滚动，工具栏换行 ────────────── */
+.table-scroll {
+  overflow-x: auto;
+}
+
+@media (max-width: 720px) {
+  .topbar {
+    padding: 10px 12px;
+  }
+
+  .panel {
+    padding: 12px 12px 40px;
+  }
+
+  .tabs {
+    padding: 12px 12px 0;
+  }
+
+  table {
+    font-size: 12px;
+  }
+
+  th,
+  td {
+    padding: 6px 8px;
+  }
+
+  .metric {
+    flex: 1 1 120px;
+  }
+}
+
+/* ── 危险/警示行：未配价模型等 ────────────────────────── */
+tr.row-warn td {
+  background: rgba(122, 59, 59, 0.12);
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.badge.ok {
+  border-color: var(--primary-border);
+  color: #9fd4b6;
+}
+
+.badge.danger {
+  border-color: var(--danger);
+  color: #e0a3a3;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+/* 模型发布页：表格内的小控件与数字输入。 */
+.tiny {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+input.num {
+  width: 88px;
 }

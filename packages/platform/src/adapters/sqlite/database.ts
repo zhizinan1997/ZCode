@@ -28,6 +28,25 @@ export interface PlatformDatabase {
   close(): void;
 }
 
+/**
+ * 在单个 BEGIN IMMEDIATE 事务里执行同步回调（审计#6/#7）。
+ *
+ * 预扣与结算都把"读判定 + 写多表"放在一个事务里：IMMEDIATE 立刻拿写锁，
+ * 其他连接只能等（busy_timeout），因此并发请求不可能同时通过同一份额度判定。
+ * 回调必须完全同步——中间不能有 await，否则事务窗口会被拉开。
+ */
+export function runInImmediateTransaction<T>(db: DatabaseSync, run: () => T): T {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const result = run();
+    db.exec("COMMIT");
+    return result;
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 export async function openPlatformDatabase(
   options: OpenPlatformDatabaseOptions,
 ): Promise<PlatformDatabase> {

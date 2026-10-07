@@ -5,12 +5,14 @@
  * 一次调用的费用先扣套餐额度，额度不足的部分再扣余额。
  * ledger 只记录**余额**的变化，套餐消耗记在 subscriptions.remaining_micros 上；
  * 因此恒等式是 `SUM(ledger.amount) === balances.balance_micros`，可随时对账。
+ * 调用的实际结算（改状态 + 扣套餐 + 记流水 + 余额封顶）由 usageRepo.settleWithBilling
+ * 在单个事务里完成（审计#6），本服务只负责查询、充值、调整与展示。
  */
-import type { LedgerEntry, UsageRecord, UsageStatus } from "../domain/billing.js";
+import type { LedgerEntry, LedgerKind, UsageRecord, UsageStatus } from "../domain/billing.js";
 import { resolveAvailableMicros } from "../domain/billing.js";
-import { formatMicros, type Micros } from "../domain/money.js";
+import type { Micros } from "../domain/money.js";
 import type { PlanRecord, SubscriptionRecord } from "../domain/plans.js";
-import { isSubscriptionActive, isModelAllowedByPlan, pickActiveSubscription } from "../domain/plans.js";
+import { isModelAllowedByPlan, pickActiveSubscription } from "../domain/plans.js";
 import { PlatformError } from "../domain/errors.js";
 import type {
   BillingRepository,
@@ -32,7 +34,10 @@ export interface AccountSummary {
 
 export interface BillingService {
   getSummary(userId: string): Promise<AccountSummary>;
-  /** 可用余额；网关的准入判定用它。 */
+  /**
+   * 可用额度 = 余额 − 未结算预扣 + 有效订阅剩余（审计#5）。
+   * 展示用它；网关准入的同一口径实现在 sqlite 的原子预扣事务里（usageAtomicRepo）。
+   */
   getAvailableMicros(userId: string): Promise<Micros>;
   recharge(input: {
     userId: string;
@@ -51,16 +56,13 @@ export interface BillingService {
     entries: LedgerEntry[];
     total: number;
   }>;
-  /**
-   * 结算一次调用的费用：先扣套餐额度，剩余部分扣余额并写流水。
-   * 余额不足时按可用余额封顶，`shortfallMicros` 是平台承担的差额（预付费无法事后追缴）。
-   */
-  chargeUsage(input: {
-    userId: string;
-    requestId: string;
-    costMicros: Micros;
-  }): Promise<{ fromPlanMicros: Micros; fromBalanceMicros: Micros; shortfallMicros: Micros }>;
-  getActivePlan(userId: string): Promise<{ subscription: SubscriptionRecord; plan: PlanRecord } | null>;
+  /** 概览页"今日充值"：按类型与起始时间汇总流水金额（只读）。 */
+  sumLedgerSince(options: { kinds: LedgerKind[]; since: number }): Promise<Micros>;
+  /** 概览页"平台负债"：全部用户余额合计（只读）。 */
+  sumBalances(): Promise<Micros>;
+  getActivePlan(
+    userId: string,
+  ): Promise<{ subscription: SubscriptionRecord; plan: PlanRecord } | null>;
   /** 套餐是否允许该模型；没有生效套餐时不限制。 */
   assertModelEntitled(input: { userId: string; modelId: string | null }): Promise<void>;
   listUsage(query: UsageRecordQuery): Promise<{ records: UsageRecord[]; total: number }>;
@@ -90,7 +92,9 @@ export function createBillingService(deps: {
             const plan = planById.get(subscription.planId);
             return plan ? { subscription, plan } : null;
           })
-          .filter((item): item is { subscription: SubscriptionRecord; plan: PlanRecord } => item !== null),
+          .filter(
+            (item): item is { subscription: SubscriptionRecord; plan: PlanRecord } => item !== null,
+          ),
         deps.now(),
       ) ?? null;
 
@@ -98,7 +102,12 @@ export function createBillingService(deps: {
       userId,
       balanceMicros,
       reservedMicros,
-      availableMicros: resolveAvailableMicros(balanceMicros, reservedMicros),
+      // 审计#5：可用额度把有效订阅的剩余额度算进去，余额为 0 的套餐用户不是"不可用"。
+      availableMicros: resolveAvailableMicros(
+        balanceMicros,
+        reservedMicros,
+        active?.subscription.remainingMicros ?? 0,
+      ),
       subscription: active?.subscription ?? null,
       plan: active?.plan ?? null,
     };
@@ -108,15 +117,38 @@ export function createBillingService(deps: {
     await deps.billing.applyLedger(mutation);
   }
 
+  /** 当前有效订阅与套餐（同时只有一个生效）；展示与权限判定共用一处口径。 */
+  async function resolveActivePlan(
+    userId: string,
+  ): Promise<{ subscription: SubscriptionRecord; plan: PlanRecord } | null> {
+    const [subscriptions, plans] = await Promise.all([
+      deps.plans.listSubscriptions(userId),
+      deps.plans.listPlans(),
+    ]);
+    const planById = new Map(plans.map((plan) => [plan.id, plan]));
+    return pickActiveSubscription(
+      subscriptions
+        .map((subscription) => {
+          const plan = planById.get(subscription.planId);
+          return plan ? { subscription, plan } : null;
+        })
+        .filter(
+          (item): item is { subscription: SubscriptionRecord; plan: PlanRecord } => item !== null,
+        ),
+      deps.now(),
+    );
+  }
+
   return {
     getSummary: resolveSummary,
 
     async getAvailableMicros(userId) {
-      const [balance, reserved] = await Promise.all([
+      const [balance, reserved, active] = await Promise.all([
         deps.billing.getBalance(userId),
         deps.usage.sumReservedMicros(userId),
+        resolveActivePlan(userId),
       ]);
-      return resolveAvailableMicros(balance, reserved);
+      return resolveAvailableMicros(balance, reserved, active?.subscription.remainingMicros ?? 0);
     },
 
     async recharge({ userId, amountMicros, note, createdBy }) {
@@ -155,73 +187,26 @@ export function createBillingService(deps: {
       return { entries, total };
     },
 
+    async sumLedgerSince(options) {
+      return await deps.billing.sumLedgerSince(options);
+    },
+
+    async sumBalances() {
+      return await deps.billing.sumBalances();
+    },
+
     async getActivePlan(userId) {
-      const [subscriptions, plans] = await Promise.all([
-        deps.plans.listSubscriptions(userId),
-        deps.plans.listPlans(),
-      ]);
-      const planById = new Map(plans.map((plan) => [plan.id, plan]));
-      return pickActiveSubscription(
-        subscriptions
-          .map((subscription) => {
-            const plan = planById.get(subscription.planId);
-            return plan ? { subscription, plan } : null;
-          })
-          .filter((item): item is { subscription: SubscriptionRecord; plan: PlanRecord } => item !== null),
-        deps.now(),
-      );
+      return await resolveActivePlan(userId);
     },
 
     async assertModelEntitled({ userId, modelId }) {
-      const active = await this.getActivePlan(userId);
+      const active = await resolveActivePlan(userId);
       if (!active || !modelId) {
         return;
       }
       if (!isModelAllowedByPlan(active.subscription, active.plan, modelId)) {
         throw new PlatformError("model_not_entitled", `当前套餐不包含模型 ${modelId}`);
       }
-    },
-
-    async chargeUsage({ userId, requestId, costMicros }) {
-      if (costMicros <= 0) {
-        return { fromPlanMicros: 0, fromBalanceMicros: 0, shortfallMicros: 0 };
-      }
-
-      // 先扣套餐额度。套餐里剩余额度不足时只扣掉能扣的部分，差额落到余额。
-      const active = await this.getActivePlan(userId);
-      let fromPlanMicros = 0;
-      if (active && isSubscriptionActive(active.subscription, deps.now())) {
-        fromPlanMicros = await deps.plans.consumeSubscriptionQuota({
-          subscriptionId: active.subscription.id,
-          amountMicros: costMicros,
-        });
-      }
-      const dueFromBalance = costMicros - fromPlanMicros;
-      if (dueFromBalance <= 0) {
-        return { fromPlanMicros, fromBalanceMicros: 0, shortfallMicros: 0 };
-      }
-
-      // 预扣是按 max_tokens 估算的，实际用量可能超出估算。
-      // 预付费系统没有办法事后追缴，所以按可用余额封顶扣减，差额作为平台承担的风险记进备注——
-      // 这里如果直接扣成负数，会违反余额非负约束，让用户看到一个 500 而账目也没记上。
-      const available = await this.getAvailableMicros(userId);
-      const fromBalanceMicros = Math.min(dueFromBalance, available);
-      const shortfallMicros = dueFromBalance - fromBalanceMicros;
-      if (fromBalanceMicros > 0) {
-        await applyLedger({
-          userId,
-          amountMicros: -fromBalanceMicros,
-          kind: "usage",
-          requestId,
-          note:
-            shortfallMicros > 0
-              ? `模型调用扣费（实际费用超出可用余额 ${formatMicros(shortfallMicros)}，已按可用余额扣减）`
-              : "模型调用扣费",
-          createdBy: null,
-          now: deps.now(),
-        });
-      }
-      return { fromPlanMicros, fromBalanceMicros, shortfallMicros };
     },
 
     async listUsage(query) {

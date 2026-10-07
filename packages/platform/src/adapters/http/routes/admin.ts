@@ -16,10 +16,17 @@ import type {
   UsageRepository,
 } from "../../../app/ports.js";
 import { createAdminCatalogRoutes } from "./adminCatalog.js";
+import { createAdminOperationRoutes } from "./adminOperations.js";
 import { createAdminPlanRoutes } from "./adminPlans.js";
+import { createAdminPublishRoutes } from "./adminPublish.js";
 import { createAdminReleaseRoutes } from "./adminReleases.js";
 import { createAdminUsageRoutes } from "./adminUsage.js";
 import { createAdminUserRoutes } from "./adminUsers.js";
+import { createAdminUserBillingRoutes } from "./adminUserBilling.js";
+import { createAdminUserSubscriptionRoutes } from "./adminUserSubscriptions.js";
+import type { OperationsService } from "../../../app/operationsService.js";
+import type { ModelPublishService } from "../../../app/modelPublishService.js";
+import type { Logger } from "../../log.js";
 
 export interface AdminRoutesDependencies {
   readonly accounts: AccountService;
@@ -27,12 +34,15 @@ export interface AdminRoutesDependencies {
   readonly catalog: CatalogService;
   readonly plans: PlanService;
   readonly releases: ReleaseService;
+  readonly operations: OperationsService;
+  readonly modelPublish: ModelPublishService;
   readonly providers: GatewayProviderRepository;
   readonly prices: ModelPriceRepository;
   readonly usage: UsageRepository;
   readonly now: () => number;
   readonly newProviderId: () => string;
   readonly releasesDir: string;
+  readonly logger: Logger;
 }
 
 export function createAdminRoutes(deps: AdminRoutesDependencies): Hono {
@@ -43,6 +53,23 @@ export function createAdminRoutes(deps: AdminRoutesDependencies): Hono {
     createAdminUserRoutes({
       accounts: deps.accounts,
       billing: deps.billing,
+      operations: deps.operations,
+      plans: deps.plans,
+    }),
+  );
+  routes.route(
+    "/",
+    createAdminUserBillingRoutes({
+      accounts: deps.accounts,
+      billing: deps.billing,
+      operations: deps.operations,
+    }),
+  );
+  routes.route(
+    "/",
+    createAdminUserSubscriptionRoutes({
+      accounts: deps.accounts,
+      operations: deps.operations,
       plans: deps.plans,
     }),
   );
@@ -63,6 +90,9 @@ export function createAdminRoutes(deps: AdminRoutesDependencies): Hono {
       accounts: deps.accounts,
       billing: deps.billing,
       usage: deps.usage,
+      catalog: deps.catalog,
+      prices: deps.prices,
+      now: deps.now,
     }),
   );
   routes.route("/", createAdminPlanRoutes({ accounts: deps.accounts, plans: deps.plans }));
@@ -72,6 +102,21 @@ export function createAdminRoutes(deps: AdminRoutesDependencies): Hono {
       accounts: deps.accounts,
       releases: deps.releases,
       releasesDir: deps.releasesDir,
+    }),
+  );
+  routes.route(
+    "/",
+    createAdminOperationRoutes({
+      accounts: deps.accounts,
+      operations: deps.operations,
+    }),
+  );
+  routes.route(
+    "/",
+    createAdminPublishRoutes({
+      accounts: deps.accounts,
+      modelPublish: deps.modelPublish,
+      logger: deps.logger,
     }),
   );
 

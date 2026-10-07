@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { PlatformRuntime } from "../src/adapters/composition.js";
 import { createPlatformApp } from "../src/adapters/http/app.js";
+import { fetchUpstreamModelIds } from "../src/adapters/http/routes/adminCatalogPublish.js";
 import { createLogger } from "../src/adapters/log.js";
 import { createTestRuntime } from "./helpers.js";
 
@@ -27,6 +28,8 @@ async function createHarness(): Promise<Harness> {
     catalog: runtime.catalog,
     plans: runtime.plans,
     releases: runtime.releases,
+    operations: runtime.operations,
+    modelPublish: runtime.modelPublish,
     gateway: runtime.gateway,
     providers: runtime.repositories.providers,
     prices: runtime.repositories.prices,
@@ -160,7 +163,10 @@ test("登出后令牌失效", async () => {
 
 test("非管理员访问管理接口被拒，网关也要求登录", async () => {
   await withHarness(async ({ json, adminToken }) => {
-    await json("/api/admin/users", post({ email: "user@example.com", password: PASSWORD }, adminToken));
+    await json(
+      "/api/admin/users",
+      post({ email: "user@example.com", password: PASSWORD }, adminToken),
+    );
     const userLogin = await json(
       "/api/auth/login",
       post({ email: "user@example.com", password: PASSWORD }),
@@ -192,14 +198,20 @@ test("管理员建号后该用户能登录", async () => {
     // 新用户余额为 0
     assert.equal(created.body.user.balanceMicros, 0);
 
-    const login = await json("/api/auth/login", post({ email: "user@example.com", password: PASSWORD }));
+    const login = await json(
+      "/api/auth/login",
+      post({ email: "user@example.com", password: PASSWORD }),
+    );
     assert.equal(login.status, 200);
   });
 });
 
 test("重复邮箱返回 409", async () => {
   await withHarness(async ({ json, adminToken }) => {
-    await json("/api/admin/users", post({ email: "dup@example.com", password: PASSWORD }, adminToken));
+    await json(
+      "/api/admin/users",
+      post({ email: "dup@example.com", password: PASSWORD }, adminToken),
+    );
     const again = await json(
       "/api/admin/users",
       post({ email: "DUP@example.com", password: PASSWORD }, adminToken),
@@ -233,7 +245,10 @@ test("停用用户后其令牌立即失效", async () => {
       "/api/admin/users",
       post({ email: "user@example.com", password: PASSWORD }, adminToken),
     );
-    const login = await json("/api/auth/login", post({ email: "user@example.com", password: PASSWORD }));
+    const login = await json(
+      "/api/auth/login",
+      post({ email: "user@example.com", password: PASSWORD }),
+    );
     const userToken = login.body.token as string;
     assert.equal((await json("/api/auth/me", { headers: auth(userToken) })).status, 200);
 
@@ -310,7 +325,10 @@ test("套餐：创建、发放、额度优先抵扣、撤销", async () => {
     const planId = plan.body.plan.id as string;
     assert.equal(plan.body.plan.quotaMicros, 100_000_000);
 
-    const grant = await json(`/api/admin/users/${userId}/subscription`, post({ planId }, adminToken));
+    const grant = await json(
+      `/api/admin/users/${userId}/subscription`,
+      post({ planId }, adminToken),
+    );
     assert.equal(grant.status, 201);
     assert.equal(grant.body.subscription.remainingMicros, 100_000_000);
 
@@ -335,7 +353,10 @@ test("删除仍被订阅引用的套餐会被拒绝并给出可读原因", async
     );
     const plan = await json("/api/admin/plans", post({ name: "P", quota: "1" }, adminToken));
     const planId = plan.body.plan.id as string;
-    await json(`/api/admin/users/${created.body.user.id as string}/subscription`, post({ planId }, adminToken));
+    await json(
+      `/api/admin/users/${created.body.user.id as string}/subscription`,
+      post({ planId }, adminToken),
+    );
 
     const removed = await json(`/api/admin/plans/${planId}`, {
       method: "DELETE",
@@ -348,19 +369,16 @@ test("删除仍被订阅引用的套餐会被拒绝并给出可读原因", async
 
 test("上游 provider：key 只写不读，编辑留空不覆盖", async () => {
   await withHarness(async ({ json, adminToken }) => {
-    const created = await json(
-      "/api/admin/providers/anthropic",
-      {
-        method: "PUT",
-        body: JSON.stringify({
-          label: "Anthropic",
-          upstreamBaseUrl: "https://api.anthropic.com",
-          protocol: "anthropic",
-          apiKey: "sk-super-secret-value",
-        }),
-        headers: auth(adminToken),
-      },
-    );
+    const created = await json("/api/admin/providers/anthropic", {
+      method: "PUT",
+      body: JSON.stringify({
+        label: "Anthropic",
+        upstreamBaseUrl: "https://api.anthropic.com",
+        protocol: "anthropic",
+        apiKey: "sk-super-secret-value",
+      }),
+      headers: auth(adminToken),
+    });
     assert.equal(created.status, 204);
 
     const listed = await json("/api/admin/providers", { headers: auth(adminToken) });
@@ -406,10 +424,11 @@ test("模型目录：未导入时返回 null，导入后客户端配置指向它
     const beforeConfig = await json("/api/v1/client/configs");
     assert.equal(beforeConfig.status, 404);
 
+    // revision 31：装配层已注入内置目录（revision 30），下限是 max(当前, 内置)（审计#20）；
+    // 模型清单写在客户端严格 schema 的 config.builtinModelIds 字段里（审计#20）。
     const content = JSON.stringify({
       schemaVersion: 1,
-      revision: 1,
-      // 与客户端严格 schema 一致：内容嵌在 config 下
+      revision: 31,
       config: {
         providerConfigRules: {
           templateRules: [],
@@ -422,12 +441,18 @@ test("模型目录：未导入时返回 null，导入后客户端配置指向它
                   type: "anthropic-messages",
                   baseUrl: "https://platform.test/api/v1/gateway/anthropic",
                 },
+                builtinModelIds: ["claude-test"],
               },
-              models: [{ modelId: "claude-test" }],
             },
           ],
         },
-        modelConfigRules: { modelRules: [], builtinProviderModelRules: [] },
+        modelConfigRules: {
+          modelRules: [],
+          modelApiRules: [],
+          providerSiteRules: [],
+          templateModelRules: [],
+          builtinProviderModelRules: [],
+        },
       },
     });
     const saved = await json("/api/admin/catalog", {
@@ -436,7 +461,7 @@ test("模型目录：未导入时返回 null，导入后客户端配置指向它
       headers: auth(adminToken),
     });
     assert.equal(saved.status, 200);
-    assert.equal(saved.body.revision, 1);
+    assert.equal(saved.body.revision, 31);
 
     const configs = await json("/api/v1/client/configs");
     assert.equal(configs.status, 200);
@@ -444,19 +469,25 @@ test("模型目录：未导入时返回 null，导入后客户端配置指向它
     assert.equal(configs.body.code, 0);
     assert.equal(
       configs.body.data.configs.builtin_provider_config_json,
-      "https://platform.test/api/v1/catalog/1.json",
+      "https://platform.test/api/v1/catalog/31.json",
     );
 
-    const catalog = await json("/api/v1/catalog/1.json");
+    const catalog = await json("/api/v1/catalog/31.json");
     assert.equal(catalog.status, 200);
-    assert.equal(catalog.body.revision, 1);
+    assert.equal(catalog.body.revision, 31);
   });
 });
 
 test("客户端账单接口返回余额与套餐", async () => {
   await withHarness(async ({ json, adminToken }) => {
-    await json("/api/admin/users", post({ email: "bill@example.com", password: PASSWORD }, adminToken));
-    const login = await json("/api/auth/login", post({ email: "bill@example.com", password: PASSWORD }));
+    await json(
+      "/api/admin/users",
+      post({ email: "bill@example.com", password: PASSWORD }, adminToken),
+    );
+    const login = await json(
+      "/api/auth/login",
+      post({ email: "bill@example.com", password: PASSWORD }),
+    );
     const userToken = login.body.token as string;
 
     const billing = await json("/api/v1/billing/me", { headers: auth(userToken) });
@@ -469,7 +500,9 @@ test("客户端账单接口返回余额与套餐", async () => {
 
 test("更新清单：未发布时 404，发布后返回 YAML", async () => {
   await withHarness(async ({ json, adminToken, request }) => {
-    const missing = await json("/api/v1/releases/electron/manifest?platform=windows-x86_64&channel=1");
+    const missing = await json(
+      "/api/v1/releases/electron/manifest?platform=windows-x86_64&channel=1",
+    );
     assert.equal(missing.status, 404);
     assert.equal(missing.body.error.code, "not_found");
 
@@ -487,7 +520,9 @@ test("更新清单：未发布时 404，发布后返回 YAML", async () => {
     assert.equal(uploaded.release.sizeBytes, binary.length);
     assert.equal(uploaded.release.sha512.length > 0, true);
 
-    const manifest = await request("/api/v1/releases/electron/manifest?platform=windows-x86_64&channel=1");
+    const manifest = await request(
+      "/api/v1/releases/electron/manifest?platform=windows-x86_64&channel=1",
+    );
     assert.equal(manifest.status, 200);
     const yaml = await manifest.text();
     assert.match(yaml, /^version: "3\.15\.0"$/m);
@@ -519,7 +554,10 @@ test("管理员重置密码后旧令牌与旧密码都失效", async () => {
       "/api/admin/users",
       post({ email: "user@example.com", password: PASSWORD }, adminToken),
     );
-    const login = await json("/api/auth/login", post({ email: "user@example.com", password: PASSWORD }));
+    const login = await json(
+      "/api/auth/login",
+      post({ email: "user@example.com", password: PASSWORD }),
+    );
     const userToken = login.body.token as string;
 
     const reset = await json(`/api/admin/users/${created.body.user.id as string}/password`, {
@@ -543,8 +581,14 @@ test("管理员重置密码后旧令牌与旧密码都失效", async () => {
 
 test("用户自助改密保留当前会话", async () => {
   await withHarness(async ({ json, adminToken }) => {
-    await json("/api/admin/users", post({ email: "user@example.com", password: PASSWORD }, adminToken));
-    const login = await json("/api/auth/login", post({ email: "user@example.com", password: PASSWORD }));
+    await json(
+      "/api/admin/users",
+      post({ email: "user@example.com", password: PASSWORD }, adminToken),
+    );
+    const login = await json(
+      "/api/auth/login",
+      post({ email: "user@example.com", password: PASSWORD }),
+    );
     const userToken = login.body.token as string;
 
     const changed = await json(
@@ -556,10 +600,449 @@ test("用户自助改密保留当前会话", async () => {
   });
 });
 
+test("用户列表按 q 搜索邮箱与显示名", async () => {
+  await withHarness(async ({ json, adminToken }) => {
+    await json(
+      "/api/admin/users",
+      post({ email: "alice@example.com", password: PASSWORD, displayName: "爱丽丝" }, adminToken),
+    );
+    await json(
+      "/api/admin/users",
+      post({ email: "bob@example.com", password: PASSWORD, displayName: "小明" }, adminToken),
+    );
+    await json(
+      "/api/admin/users",
+      post({ email: "carol@example.com", password: PASSWORD, displayName: "卡罗" }, adminToken),
+    );
+
+    // 按邮箱片段搜：只命中 alice
+    const byEmail = await json("/api/admin/users?q=alice", { headers: auth(adminToken) });
+    assert.equal(byEmail.status, 200);
+    assert.equal(byEmail.body.total, 1);
+    assert.equal(byEmail.body.users.length, 1);
+    assert.equal(byEmail.body.users[0].email, "alice@example.com");
+    assert.equal(byEmail.body.q, "alice");
+
+    // 按显示名搜：只命中小明
+    const byName = await json(`/api/admin/users?q=${encodeURIComponent("小明")}`, {
+      headers: auth(adminToken),
+    });
+    assert.equal(byName.status, 200);
+    assert.equal(byName.body.total, 1);
+    assert.equal(byName.body.users[0].displayName, "小明");
+
+    // 空搜索退化为完整列表：admin + 3 个新用户
+    const all = await json("/api/admin/users?q=", { headers: auth(adminToken) });
+    assert.equal(all.status, 200);
+    assert.equal(all.body.total, 4);
+    assert.equal("q" in all.body, false);
+  });
+});
+
+test("PATCH 用户：displayName 与 email 更新、邮箱冲突返回 user_exists", async () => {
+  await withHarness(async ({ json, adminToken }) => {
+    const first = await json(
+      "/api/admin/users",
+      post({ email: "first@example.com", password: PASSWORD, displayName: "甲" }, adminToken),
+    );
+    const second = await json(
+      "/api/admin/users",
+      post({ email: "second@example.com", password: PASSWORD, displayName: "乙" }, adminToken),
+    );
+    const firstId = first.body.user.id as string;
+
+    const renamed = await json(`/api/admin/users/${firstId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ displayName: "  新名字  ", email: "New.First@Example.COM" }),
+      headers: auth(adminToken),
+    });
+    assert.equal(renamed.status, 200);
+    assert.equal(renamed.body.user.displayName, "新名字");
+    // 邮箱在规范化后回读
+    assert.equal(renamed.body.user.email, "new.first@example.com");
+
+    // 改成 second 已占用的邮箱 → 409 user_exists
+    const conflict = await json(`/api/admin/users/${firstId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ email: second.body.user.email }),
+      headers: auth(adminToken),
+    });
+    assert.equal(conflict.status, 409);
+    assert.equal(conflict.body.error.code, "user_exists");
+
+    // 自己占用同一个邮箱（无变化）按幂等放行
+    const selfEmail = await json(`/api/admin/users/${firstId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ email: "FIRST@example.com" }),
+      headers: auth(adminToken),
+    });
+    assert.equal(selfEmail.status, 200);
+
+    // 非法邮箱 → 400
+    const invalid = await json(`/api/admin/users/${firstId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ email: "not-an-email" }),
+      headers: auth(adminToken),
+    });
+    assert.equal(invalid.status, 400);
+    assert.equal(invalid.body.error.code, "invalid_request");
+  });
+});
+
+test("PATCH 自我保护：唯一管理员不能降级/停用自己，但可改显示名/邮箱", async () => {
+  await withHarness(async ({ json, adminToken, runtime }) => {
+    const me = await json("/api/auth/me", { headers: auth(adminToken) });
+    const adminId = me.body.user.id as string;
+
+    // 唯一管理员：自我资料改动放行
+    const rename = await json(`/api/admin/users/${adminId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ displayName: "首席管理员" }),
+      headers: auth(adminToken),
+    });
+    assert.equal(rename.status, 200);
+    assert.equal(rename.body.user.displayName, "首席管理员");
+
+    // 降级/停用自己 → 403（一律禁止，语义见 security-hardening.md B2）
+    const demoteSelf = await json(`/api/admin/users/${adminId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role: "user" }),
+      headers: auth(adminToken),
+    });
+    assert.equal(demoteSelf.status, 403);
+    assert.equal(demoteSelf.body.error.code, "forbidden");
+
+    const disableSelf = await json(`/api/admin/users/${adminId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "disabled" }),
+      headers: auth(adminToken),
+    });
+    assert.equal(disableSelf.status, 403);
+
+    // 有第二个管理员在场，自我降级仍被一律禁止
+    await runtime.accounts.createUser({
+      email: "admin2@example.com",
+      password: PASSWORD,
+      role: "admin",
+    });
+    const demoteSelfWithSecond = await json(`/api/admin/users/${adminId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role: "user" }),
+      headers: auth(adminToken),
+    });
+    assert.equal(demoteSelfWithSecond.status, 403);
+
+    // 多管理员下，降级"另一名"管理员仍放行
+    const secondLogin = await json(
+      "/api/auth/login",
+      post({ email: "admin2@example.com", password: PASSWORD }),
+    );
+    const secondId = secondLogin.body.user.id as string;
+    const demoteOther = await json(`/api/admin/users/${secondId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role: "user" }),
+      headers: auth(adminToken),
+    });
+    assert.equal(demoteOther.status, 200);
+    assert.equal(demoteOther.body.user.role, "user");
+  });
+});
+
+test("DELETE 普通用户返回 204，删除后 404；DELETE 最后一个管理员返回 409", async () => {
+  await withHarness(async ({ json, adminToken, runtime }) => {
+    const created = await json(
+      "/api/admin/users",
+      post({ email: "doomed@example.com", password: PASSWORD }, adminToken),
+    );
+    const userId = created.body.user.id as string;
+    // 给该用户充值并建 API Key，验证级联清理路径
+    await json(`/api/admin/users/${userId}/recharge`, post({ amount: "1" }, adminToken));
+    const me = await json("/api/auth/me", { headers: auth(adminToken) });
+    const adminId = me.body.user.id as string;
+    await runtime.operations.createApiKey({ userId, name: "k", actorUserId: adminId });
+
+    const removed = await json(`/api/admin/users/${userId}`, {
+      method: "DELETE",
+      headers: auth(adminToken),
+    });
+    assert.equal(removed.status, 204);
+
+    const gone = await json(`/api/admin/users/${userId}`, { headers: auth(adminToken) });
+    assert.equal(gone.status, 404);
+    assert.equal(gone.body.error.code, "user_not_found");
+
+    // API Key 表对 users.id 有 ON DELETE CASCADE：删用户后 key 一并消失
+    assert.deepEqual(await runtime.operations.listApiKeysForUser(userId), []);
+
+    // 唯一的管理员不能被删
+    const deleteAdmin = await json(`/api/admin/users/${adminId}`, {
+      method: "DELETE",
+      headers: auth(adminToken),
+    });
+    assert.equal(deleteAdmin.status, 403);
+  });
+});
+
+test("批量发放套餐：全部成功 granted=2，部分失败收集 error", async () => {
+  await withHarness(async ({ json, adminToken }) => {
+    const userA = await json(
+      "/api/admin/users",
+      post({ email: "bulk-a@example.com", password: PASSWORD }, adminToken),
+    );
+    const userB = await json(
+      "/api/admin/users",
+      post({ email: "bulk-b@example.com", password: PASSWORD }, adminToken),
+    );
+    const plan = await json(
+      "/api/admin/plans",
+      post({ name: "批量套餐", quota: "10", durationDays: null, allowedModels: [] }, adminToken),
+    );
+    const planId = plan.body.plan.id as string;
+
+    const bulk = await json("/api/admin/users/bulk-subscription", {
+      ...post(
+        {
+          planId,
+          userIds: [userA.body.user.id, userB.body.user.id],
+        },
+        adminToken,
+      ),
+    });
+    assert.equal(bulk.status, 200);
+    assert.equal(bulk.body.granted, 2);
+    assert.deepEqual(bulk.body.failed, []);
+
+    const detailA = await json(`/api/admin/users/${userA.body.user.id as string}`, {
+      headers: auth(adminToken),
+    });
+    assert.equal(detailA.body.plan.name, "批量套餐");
+
+    // 混合成功与失败：不存在的用户 id 不中断整体
+    const mixed = await json("/api/admin/users/bulk-subscription", {
+      ...post({ planId, userIds: [userA.body.user.id, "usr_missing"] }, adminToken),
+    });
+    assert.equal(mixed.status, 200);
+    assert.equal(mixed.body.granted, 1);
+    assert.equal(mixed.body.failed.length, 1);
+    assert.equal(mixed.body.failed[0].userId, "usr_missing");
+
+    // 入参非法：空数组 / 超上限
+    const empty = await json("/api/admin/users/bulk-subscription", {
+      ...post({ planId, userIds: [] }, adminToken),
+    });
+    assert.equal(empty.status, 400);
+    const tooMany = await json("/api/admin/users/bulk-subscription", {
+      ...post({ planId, userIds: Array.from({ length: 501 }, () => "usr_x") }, adminToken),
+    });
+    assert.equal(tooMany.status, 400);
+  });
+});
+
 test("未知路由返回 404", async () => {
   await withHarness(async ({ json }) => {
     const result = await json("/api/unknown");
     assert.equal(result.status, 404);
     assert.equal(result.body.error.code, "not_found");
   });
+});
+
+test("概览：充值后负债与用户数正确，今日消费为 0 且未配价列表为空", async () => {
+  await withHarness(async ({ json, adminToken }) => {
+    await json(
+      "/api/admin/users",
+      post({ email: "ov@example.com", password: PASSWORD }, adminToken),
+    );
+    // 充值前基线：负债来自该测试库自己的数据（内存库，仅 admin + 这一个用户，均未充值）
+    const before = (await json("/api/admin/overview", { headers: auth(adminToken) })).body;
+    const beforeLiability = before.liabilityMicros as number;
+    const usersBefore = before.userCount as number;
+    assert.equal(before.totalsToday.requestCount, 0);
+    // 目录未发布：没有"已发布但未配价"的模型
+    assert.deepEqual(before.unpricedModels, []);
+    assert.equal("rechargeToday" in before, true);
+    assert.equal("costToday" in before, true);
+
+    const created = await json(
+      "/api/admin/users",
+      post({ email: "ov2@example.com", password: PASSWORD }, adminToken),
+    );
+    await json(`/api/admin/users/${created.body.user.id as string}/recharge`, {
+      ...post({ amount: "5" }, adminToken),
+    });
+
+    const after = await json("/api/admin/overview", { headers: auth(adminToken) });
+    assert.equal(after.body.liabilityMicros, beforeLiability + 5_000_000);
+    assert.equal(after.body.rechargeTodayMicros >= 5_000_000, true);
+    // 基线里已有 ov@example.com（admin 之外只建了这一个），之后只新增 ov2 一个用户
+    assert.equal(after.body.userCount, usersBefore + 1);
+    assert.equal(after.body.totalsToday.requestCount, 0);
+    assert.deepEqual(after.body.unpricedModels, []);
+  });
+});
+
+test("按模型聚合与全站流水：结算一笔用量后出现该模型与 usage 流水行", async () => {
+  await withHarness(async ({ json, adminToken, runtime }) => {
+    const created = await json(
+      "/api/admin/users",
+      post({ email: "usage@example.com", password: PASSWORD }, adminToken),
+    );
+    const userId = created.body.user.id as string;
+
+    // 结算会从余额扣钱（事务里余额封顶），先充值让余额覆盖费用，ledger 才有 usage 行。
+    await runtime.billing.recharge({ userId, amountMicros: 10_000_000 });
+
+    // 不走网关链路，直接用仓储构造"预扣 → 原子结算"：结算事务同时写 usage 与 ledger。
+    const inserted = await runtime.repositories.usage.insertReservation({
+      requestId: "req-agg-test-1",
+      userId,
+      providerId: "anthropic",
+      modelId: "claude-test",
+      costMicros: 1_000_000,
+      httpStatus: null,
+      durationMs: null,
+      now: Date.now(),
+    });
+    assert.equal(inserted, true);
+    const settled = await runtime.repositories.usage.settleWithBilling({
+      requestId: "req-agg-test-1",
+      userId,
+      usage: {
+        inputTokens: 1_000_000,
+        outputTokens: 100_000,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      },
+      costMicros: 3_500_000,
+      status: "ok",
+      httpStatus: 200,
+      errorMessage: null,
+      now: Date.now(),
+    });
+    assert.equal(settled.settled, true);
+
+    const byModel = await json("/api/admin/usage/by-model", { headers: auth(adminToken) });
+    assert.equal(byModel.status, 200);
+    const row = byModel.body.rows.find(
+      (entry: { modelId: string }) => entry.modelId === "claude-test",
+    );
+    assert.ok(row, "聚合结果应包含 claude-test");
+    assert.equal(row.totals.requestCount, 1);
+    assert.equal(row.totals.costMicros, 3_500_000);
+
+    const ledger = await json("/api/admin/ledger", { headers: auth(adminToken) });
+    assert.equal(ledger.status, 200);
+    const usageEntry = ledger.body.entries.find(
+      (entry: { kind: string; userId: string }) =>
+        entry.kind === "usage" && entry.userId === userId,
+    );
+    assert.ok(usageEntry, "全站流水应包含该用户的 usage 行");
+    assert.equal(usageEntry.amountMicros, -3_500_000);
+    assert.equal(usageEntry.direction, "debit");
+  });
+});
+
+test("审计日志支持 actor 精确过滤", async () => {
+  await withHarness(async ({ json, adminToken, runtime }) => {
+    const other = await runtime.accounts.createUser({
+      email: "actor@example.com",
+      password: PASSWORD,
+      role: "admin",
+    });
+    const otherLogin = await runtime.accounts.login({
+      email: "actor@example.com",
+      password: PASSWORD,
+    });
+    // 两个不同 actor 各留一条 settings.update 审计
+    await json("/api/admin/settings", {
+      method: "PUT",
+      body: JSON.stringify({ allowSelfRegistration: true }),
+      headers: auth(adminToken),
+    });
+    await json("/api/admin/settings", {
+      method: "PUT",
+      body: JSON.stringify({ allowSelfRegistration: false }),
+      headers: auth(otherLogin.token),
+    });
+
+    const filtered = await json(
+      `/api/admin/audit?actor=${encodeURIComponent(other.id)}&action=settings.update`,
+      { headers: auth(adminToken) },
+    );
+    assert.equal(filtered.status, 200);
+    assert.equal(filtered.body.total, 1);
+    assert.equal(filtered.body.entries[0].actorUserId, other.id);
+
+    const all = await json("/api/admin/audit?action=settings.update", {
+      headers: auth(adminToken),
+    });
+    assert.equal(all.body.total, 2);
+  });
+});
+
+test("删除未被目录引用的上游 provider 返回 204", async () => {
+  await withHarness(async ({ json, adminToken }) => {
+    await json("/api/admin/providers/tmp-provider", {
+      method: "PUT",
+      body: JSON.stringify({
+        label: "临时上游",
+        upstreamBaseUrl: "https://upstream.test",
+        protocol: "openai-chat-completions",
+        apiKey: "sk-test",
+      }),
+      headers: auth(adminToken),
+    });
+    const removed = await json("/api/admin/providers/tmp-provider", {
+      method: "DELETE",
+      headers: auth(adminToken),
+    });
+    assert.equal(removed.status, 204);
+    const listed = await json("/api/admin/providers", { headers: auth(adminToken) });
+    assert.equal(
+      listed.body.providers.some((p: { id: string }) => p.id === "tmp-provider"),
+      false,
+    );
+  });
+});
+
+test("fetchUpstreamModelIds：3xx 拒绝跟随抛错，200 解析模型列表", async () => {
+  const redirectFetch = (async () =>
+    new Response(null, {
+      status: 302,
+      headers: { location: "https://evil.test" },
+    })) as typeof fetch;
+  await assert.rejects(
+    fetchUpstreamModelIds({
+      baseUrl: "https://upstream.test",
+      apiKey: "sk-secret",
+      protocol: "openai-chat-completions",
+      fetchImpl: redirectFetch,
+    }),
+    /重定向/,
+  );
+
+  const calls: string[] = [];
+  const okFetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    calls.push(url);
+    // /v1/models 404，逼出回退路径；/models 返回模型清单
+    return new Response(
+      url.endsWith("/v1/models")
+        ? "not found"
+        : JSON.stringify({ data: [{ id: "gpt-test" }, { id: "gpt-test" }, { id: "o3" }] }),
+      {
+        status: url.endsWith("/v1/models") ? 404 : 200,
+        headers: { "content-type": "application/json" },
+      },
+    );
+  }) as typeof fetch;
+  const ok = await fetchUpstreamModelIds({
+    baseUrl: "https://upstream.test",
+    apiKey: "sk-secret",
+    protocol: "openai-chat-completions",
+    fetchImpl: okFetch,
+  });
+  assert.deepEqual(ok.models, ["gpt-test", "o3"]);
+  // 先试 /v1/models 再退 /models：回退成功时提示管理员补 /v1
+  assert.equal(calls.length, 2);
+  assert.equal(ok.suggestedBaseUrl, "https://upstream.test/v1");
 });

@@ -163,6 +163,104 @@ const PLANS_AND_RELEASES = `
   CREATE UNIQUE INDEX idx_releases_unique ON releases(version, platform, channel);
 `;
 
+/**
+ * 运营基建：审计日志、系统设置、兑换码、用户 API Key。
+ * 形状与约束见 specs/platform/operations.md。
+ */
+const OPERATIONS = `
+  CREATE TABLE audit_logs (
+    id TEXT PRIMARY KEY,
+    actor_user_id TEXT,
+    action TEXT NOT NULL,
+    target_type TEXT,
+    target_id TEXT,
+    detail TEXT,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE INDEX idx_audit_created_at ON audit_logs(created_at DESC);
+  CREATE INDEX idx_audit_action ON audit_logs(action, created_at DESC);
+
+  CREATE TABLE system_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    updated_by TEXT
+  );
+
+  CREATE TABLE redeem_codes (
+    id TEXT PRIMARY KEY,
+    code TEXT NOT NULL UNIQUE,
+    amount_micros INTEGER NOT NULL CHECK (amount_micros >= 0),
+    max_redemptions INTEGER NOT NULL CHECK (max_redemptions > 0),
+    redeemed_count INTEGER NOT NULL DEFAULT 0,
+    expires_at INTEGER,
+    created_by TEXT,
+    revoked_at INTEGER,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE redeem_redemptions (
+    id TEXT PRIMARY KEY,
+    code_id TEXT NOT NULL REFERENCES redeem_codes(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL,
+    amount_micros INTEGER NOT NULL,
+    redeemed_at INTEGER NOT NULL,
+    UNIQUE (code_id, user_id)
+  );
+
+  CREATE TABLE api_keys (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    key_hash TEXT NOT NULL UNIQUE,
+    key_hint TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    last_used_at INTEGER,
+    revoked_at INTEGER
+  );
+
+  CREATE INDEX idx_api_keys_user ON api_keys(user_id, created_at DESC);
+`;
+
+/**
+ * 模型发布设置（specs/platform/model-publish.md）。
+ *
+ * - published_models 的业务主键是 (provider_id, upstream_model_id)；
+ *   display_name 在同一上游内唯一——它就是客户端目录里的 modelId，网关按它反查真实 ID，
+ *   重名会让改写歧义。
+ * - 能力列对应目录里 builtinProviderModelRules[].config 的 properties/optionSpecs；
+ *   reasoning_levels_json 为 NULL 表示不配置档位（客户端走内置 modelApiRules 兜底）。
+ */
+const MODEL_PUBLISH = `
+  CREATE TABLE published_providers (
+    provider_id TEXT PRIMARY KEY,
+    client_protocol TEXT NOT NULL CHECK (client_protocol IN ('anthropic-messages', 'openai-chat-completions', 'openai-responses')),
+    updated_at INTEGER NOT NULL,
+    updated_by TEXT
+  );
+
+  CREATE TABLE published_models (
+    provider_id TEXT NOT NULL REFERENCES published_providers(provider_id) ON DELETE CASCADE,
+    upstream_model_id TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    context_window INTEGER,
+    max_output_tokens INTEGER,
+    supports_image INTEGER NOT NULL DEFAULT 0 CHECK (supports_image IN (0, 1)),
+    supports_pdf INTEGER NOT NULL DEFAULT 0 CHECK (supports_pdf IN (0, 1)),
+    supports_video INTEGER NOT NULL DEFAULT 0 CHECK (supports_video IN (0, 1)),
+    supports_audio INTEGER NOT NULL DEFAULT 0 CHECK (supports_audio IN (0, 1)),
+    supports_tool_call INTEGER NOT NULL DEFAULT 0 CHECK (supports_tool_call IN (0, 1)),
+    reasoning_levels_json TEXT,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (provider_id, upstream_model_id)
+  );
+
+  CREATE UNIQUE INDEX idx_published_models_display
+    ON published_models(provider_id, display_name);
+`;
+
 const DEFINITIONS: readonly MigrationDefinition[] = [
   {
     id: "0001_accounts",
@@ -175,6 +273,14 @@ const DEFINITIONS: readonly MigrationDefinition[] = [
   {
     id: "0003_plans_and_releases",
     statements: [PLANS_AND_RELEASES],
+  },
+  {
+    id: "0004_operations",
+    statements: [OPERATIONS],
+  },
+  {
+    id: "0005_model_publish",
+    statements: [MODEL_PUBLISH],
   },
 ];
 

@@ -11,7 +11,15 @@ import { PlatformError } from "../domain/errors.js";
 const DEFAULT_PORT = 3100;
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const DEFAULT_UPSTREAM_TIMEOUT_MS = 10 * 60 * 1000;
+/** 上游"无数据"超时（审计#14）：等待响应头与等待 body 分片共用，每收到分片就重置。 */
+const DEFAULT_UPSTREAM_IDLE_TIMEOUT_MS = 60 * 1000;
+/**
+ * 单次请求的输出上限默认值（审计#9）。
+ *
+ * 不设上限时预扣按 8192 输出 token 估算，长回答的预扣远小于实际费用。
+ * 0 仍表示不限制。
+ */
+const DEFAULT_OUTPUT_TOKEN_CAP = 32_768;
 
 /**
  * 管理后台静态目录的默认位置：包根下的 console/。
@@ -37,7 +45,11 @@ export interface PlatformConfig {
   readonly publicOrigin: string | null;
   /** 单次模型请求的输出上限；0 表示不限制。用于限制单次预扣敞口。 */
   readonly outputTokenCap: number;
-  readonly upstreamTimeoutMs: number;
+  /**
+   * 上游无数据超时（毫秒）：等待响应头与等待 body 分片共用，收到分片即重置（审计#14）。
+   * 不是请求总时长上限——流式回答可以持续数分钟，只要还在出数据就不该被掐断。
+   */
+  readonly upstreamIdleTimeoutMs: number;
   /** 管理后台静态目录。 */
   readonly consoleDir: string;
   /** 客户端安装包存放目录；manifest 里的下载地址指向它下面的文件。 */
@@ -115,11 +127,15 @@ export function resolvePlatformConfig(
     sessionTtlMs: readPositiveInteger(env, "ZCODE_PLATFORM_SESSION_TTL_MS", DEFAULT_SESSION_TTL_MS),
     logLevel: readEnv(env, "ZCODE_PLATFORM_LOG_LEVEL") ?? "info",
     publicOrigin: publicOrigin ? normalizeOrigin(publicOrigin) : null,
-    outputTokenCap: readNonNegativeInteger(env, "ZCODE_PLATFORM_OUTPUT_TOKEN_CAP", 0),
-    upstreamTimeoutMs: readPositiveInteger(
+    outputTokenCap: readNonNegativeInteger(
       env,
-      "ZCODE_PLATFORM_UPSTREAM_TIMEOUT_MS",
-      DEFAULT_UPSTREAM_TIMEOUT_MS,
+      "ZCODE_PLATFORM_OUTPUT_TOKEN_CAP",
+      DEFAULT_OUTPUT_TOKEN_CAP,
+    ),
+    upstreamIdleTimeoutMs: readPositiveInteger(
+      env,
+      "ZCODE_PLATFORM_UPSTREAM_IDLE_TIMEOUT_MS",
+      DEFAULT_UPSTREAM_IDLE_TIMEOUT_MS,
     ),
     consoleDir: readEnv(env, "ZCODE_PLATFORM_CONSOLE_DIR") ?? DEFAULT_CONSOLE_DIR,
     releasesDir: readEnv(env, "ZCODE_PLATFORM_RELEASES_DIR") ?? join(repositoryRoot, "releases"),

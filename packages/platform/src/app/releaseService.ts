@@ -11,11 +11,7 @@
  * 而 YAML 的双引号标量与 JSON 字符串转义规则一致，releaseNotes 里的换行也能安全承载。
  */
 import { PlatformError } from "../domain/errors.js";
-import type {
-  ReleaseChannel,
-  ReleasePlatform,
-  ReleaseRecord,
-} from "../domain/releases.js";
+import type { ReleaseChannel, ReleasePlatform, ReleaseRecord } from "../domain/releases.js";
 import { buildReleaseDownloadPath, pickLatestRelease } from "../domain/releases.js";
 import type { ReleaseRepository } from "./ports.js";
 
@@ -32,14 +28,8 @@ export interface ReleaseService {
   }): Promise<ReleaseRecord>;
   remove(releaseId: string): Promise<void>;
   /** 生成客户端要的 YAML manifest；该平台该通道没有任何发布时返回 null。 */
-  buildManifest(input: {
-    platform: string;
-    channel: ReleaseChannel;
-  }): Promise<string | null>;
-  findReleaseFile(input: {
-    version: string;
-    fileName: string;
-  }): Promise<ReleaseRecord | null>;
+  buildManifest(input: { platform: string; channel: ReleaseChannel }): Promise<string | null>;
+  findReleaseFile(input: { version: string; fileName: string }): Promise<ReleaseRecord | null>;
 }
 
 function quote(value: string): string {
@@ -153,9 +143,7 @@ export function createReleaseService(deps: {
 
     async findReleaseFile({ version, fileName }) {
       const list = await deps.releases.list();
-      return (
-        list.find((item) => item.version === version && item.fileName === fileName) ?? null
-      );
+      return list.find((item) => item.version === version && item.fileName === fileName) ?? null;
     },
   };
 }

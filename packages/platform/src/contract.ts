@@ -21,6 +21,8 @@ export type { CatalogContentSummary, CatalogService } from "./app/catalogService
 export { createCatalogService } from "./app/catalogService.js";
 export type { GatewayRequestInput, GatewayService } from "./app/gatewayService.js";
 export { createGatewayService } from "./app/gatewayService.js";
+export type { ModelPublishService, PublishPreview } from "./app/modelPublishService.js";
+export { createModelPublishService } from "./app/modelPublishService.js";
 export type { PlanService } from "./app/planService.js";
 export { createPlanService } from "./app/planService.js";
 export type { ReleaseService } from "./app/releaseService.js";
@@ -38,6 +40,7 @@ export type {
   LoginResult,
   ModelPriceRecord,
   ModelPriceRepository,
+  ModelPublishRepository,
   PlanRepository,
   PlatformRepositories,
   ReleaseRepository,
@@ -81,6 +84,24 @@ export {
   resolveSettledCostMicros,
 } from "./domain/billing.js";
 export type { GatewayProtocol, GatewayProvider } from "./domain/gateway.js";
+export type {
+  ClientProtocol,
+  ModelPublishSettings,
+  PublishedModelSetting,
+  PublishedProviderSetting,
+} from "./domain/modelPublish.js";
+export {
+  CLIENT_PROTOCOLS,
+  PLATFORM_PROVIDER_ID_PREFIX,
+  REASONING_LEVEL_OPTIONS,
+  normalizeModelSettings,
+} from "./domain/modelPublish.js";
+export {
+  buildCatalog,
+  nextRevision,
+  type BuiltCatalog,
+  type BuiltCatalogSummary,
+} from "./domain/modelPublishCatalog.js";
 export {
   GATEWAY_PATH_PREFIX,
   GATEWAY_PROTOCOLS,
@@ -111,4 +132,8 @@ export {
   resolveReleaseChannelFromQuery,
 } from "./domain/releases.js";
 export type { SseUsageAccumulator } from "./domain/usageParsing.js";
-export { EMPTY_USAGE, createSseUsageAccumulator, readUsageFromJson } from "./domain/usageParsing.js";
+export {
+  EMPTY_USAGE,
+  createSseUsageAccumulator,
+  readUsageFromJson,
+} from "./domain/usageParsing.js";

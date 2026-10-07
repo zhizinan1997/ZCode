@@ -3,6 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'"
+    />
     <title>RCode 平台管理后台</title>
     <link rel="stylesheet" href="/console/styles.css" />
   </head>
@@ -14,6 +18,7 @@
       </div>
       <div class="topbar-right">
         <span id="current-user" class="muted"></span>
+        <button id="change-password-button" class="btn hidden">改密</button>
         <button id="logout-button" class="btn hidden">退出</button>
       </div>
     </header>
@@ -35,6 +40,20 @@
       <nav id="tabs" class="tabs"></nav>
       <section id="panel" class="panel"></section>
     </main>
+
+    <!-- 通用弹层：替代 window.prompt / window.confirm / window.alert -->
+    <div id="modal-backdrop" class="modal-backdrop hidden">
+      <div id="modal" class="modal card" role="dialog" aria-modal="true">
+        <h3 id="modal-title"></h3>
+        <p id="modal-text" class="muted"></p>
+        <div id="modal-fields"></div>
+        <div id="modal-message" class="message"></div>
+        <div class="modal-actions">
+          <button id="modal-cancel" class="btn">取消</button>
+          <button id="modal-ok" class="btn primary">确定</button>
+        </div>
+      </div>
+    </div>
 
     <div id="toast" class="toast hidden"></div>
 

@@ -32,3 +32,19 @@ export function newReleaseId(): string {
 export function newProviderId(): string {
   return `prv_${randomUUID()}`;
 }
+
+export function newAuditLogId(): string {
+  return `aud_${randomUUID()}`;
+}
+
+export function newRedeemCodeId(): string {
+  return `rcd_${randomUUID()}`;
+}
+
+export function newRedemptionId(): string {
+  return `rdm_${randomUUID()}`;
+}
+
+export function newApiKeyId(): string {
+  return `key_${randomUUID()}`;
+}

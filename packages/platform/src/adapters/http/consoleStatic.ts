@@ -19,6 +19,23 @@ const CONTENT_TYPES: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 
+/**
+ * 审计#12：管理后台页面原本没有任何安全响应头。
+ *
+ * CSP 从 `default-src 'self'` 起步并保持严格不放宽：已核对 console 源码，
+ * index.html 只有一条外部 module script（/console/app.js）与一条外部样式表，
+ * 没有内联 <script>/<style>/style= 属性，各 screens-*.js 也没有 eval/new Function，
+ * 页面不引用任何外链资源，因此不需要 unsafe-inline；img-src 保留 data: 与页面
+ * 自带 meta CSP 一致。frame-ancestors/X-Frame-Options 一并挡住点击劫持。
+ */
+const CONSOLE_SECURITY_HEADERS: Record<string, string> = {
+  "content-security-policy":
+    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+  "x-frame-options": "DENY",
+  "referrer-policy": "no-referrer",
+  "x-content-type-options": "nosniff",
+};
+
 /** 只允许读取 consoleDir 内的文件：路径逃逸会让静态服务变成任意文件读取。 */
 function resolveWithin(root: string, relativePath: string): string | null {
   const normalized = normalize(relativePath).replace(/^([/\\])+/, "");
@@ -26,7 +43,9 @@ function resolveWithin(root: string, relativePath: string): string | null {
     return null;
   }
   const target = join(root, normalized);
-  const normalizedRoot = normalize(root).endsWith(sep) ? normalize(root) : `${normalize(root)}${sep}`;
+  const normalizedRoot = normalize(root).endsWith(sep)
+    ? normalize(root)
+    : `${normalize(root)}${sep}`;
   return normalize(target).startsWith(normalizedRoot) ? target : null;
 }
 
@@ -48,7 +67,10 @@ export function createConsoleRoutes(options: { readonly consoleDir: string }): H
       );
     }
     const contentType = CONTENT_TYPES[extname(target).toLowerCase()] ?? "application/octet-stream";
-    return new Response(content, { status: 200, headers: { "content-type": contentType } });
+    return new Response(content, {
+      status: 200,
+      headers: { "content-type": contentType, ...CONSOLE_SECURITY_HEADERS },
+    });
   };
 
   routes.get("/", async () => await serve("index.html"));

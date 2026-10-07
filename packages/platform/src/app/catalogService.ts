@@ -7,8 +7,12 @@
  * 注意校验强度：这里只做结构与关键字段校验（schemaVersion / revision / provider 的 baseUrl）。
  * 客户端用的是严格 schema，多余的未知字段会被它拒绝；平台无法完全复刻那份 schema，
  * 所以新增字段前仍要先发客户端（见 specs/platform/model-catalog.md）。
+ *
+ * "模型发布"页的服务端规则（设置校验与目录生成）在 domain/modelPublish.ts + modelPublishService.ts；
+ * 内置目录的读取与摘要（readBuiltinCatalogFile，revision 下限与发布页预填的事实源）在 builtinCatalog.ts。
  */
 import { PlatformError } from "../domain/errors.js";
+import type { BuiltinCatalogFile } from "./builtinCatalog.js";
 import type { CatalogRepository } from "./ports.js";
 
 export interface CatalogContentSummary {
@@ -26,8 +30,20 @@ export interface CatalogService {
     expectedRevision: number | null;
     updatedBy: string | null;
   }): Promise<number>;
+  /** 随包内置目录（revision 下限与发布页预填的事实源）；文件缺失时返回 null。 */
+  readBuiltin(): Promise<{ revision: number; content: string } | null>;
   /** 客户端 /api/v1/client/configs 的响应体。 */
   buildClientConfigs(origin: string): Promise<Record<string, unknown>>;
+  /** 同上，但把系统设置里的 forceUpdate.minimalVersion 合并进 configs（运营下发）。 */
+  buildClientConfigsWithOperations(
+    origin: string,
+    operations: {
+      getSettings(): Promise<{
+        forceUpdateMinimalVersion: string;
+        allowSelfRegistration: boolean;
+      }>;
+    },
+  ): Promise<Record<string, unknown>>;
 }
 
 const CATALOG_PATH_PREFIX = "/api/v1/catalog";
@@ -92,9 +108,14 @@ function parseAndValidate(content: string): CatalogContentSummary {
   const rules = asRecord(config["providerConfigRules"], "config.providerConfigRules");
   const providerRules = rules["providerRules"];
   if (!Array.isArray(providerRules)) {
-    throw new PlatformError("invalid_request", "config.providerConfigRules.providerRules 必须是数组");
+    throw new PlatformError(
+      "invalid_request",
+      "config.providerConfigRules.providerRules 必须是数组",
+    );
   }
-  if (!Array.isArray(asRecord(config["modelConfigRules"], "config.modelConfigRules")["modelRules"])) {
+  if (
+    !Array.isArray(asRecord(config["modelConfigRules"], "config.modelConfigRules")["modelRules"])
+  ) {
     throw new PlatformError("invalid_request", "config.modelConfigRules.modelRules 必须是数组");
   }
 
@@ -114,9 +135,21 @@ function parseAndValidate(content: string): CatalogContentSummary {
         `provider ${providerId} 缺少 config.api.baseUrl：客户端会不知道该往哪里发请求`,
       );
     }
-    const models = rule["models"];
-    if (Array.isArray(models)) {
-      modelCount += models.length;
+    // 审计#20：客户端严格 schema 里 provider 的可见模型清单是 config.builtinModelIds
+    // （specs/platform/model-catalog.md 硬约束第 4 条），不是条目上的 models 字段——
+    // 读错字段曾让摘要永远显示"模型 0 条"。
+    const builtinModelIds = providerConfig["builtinModelIds"];
+    if (builtinModelIds !== undefined) {
+      if (
+        !Array.isArray(builtinModelIds) ||
+        builtinModelIds.some((id) => typeof id !== "string" || !id.trim())
+      ) {
+        throw new PlatformError(
+          "invalid_request",
+          `provider ${providerId} 的 config.builtinModelIds 必须是非空字符串数组`,
+        );
+      }
+      modelCount += builtinModelIds.length;
     }
   }
 
@@ -126,6 +159,8 @@ function parseAndValidate(content: string): CatalogContentSummary {
 export function createCatalogService(deps: {
   readonly catalog: CatalogRepository;
   readonly now: () => number;
+  /** 随包内置目录（装配层从 config/provider/zcode-builtin.json 读出注入）；缺失时为空。 */
+  readonly builtin?: BuiltinCatalogFile | null;
 }): CatalogService {
   return {
     async readCurrent() {
@@ -140,15 +175,21 @@ export function createCatalogService(deps: {
       return parseAndValidate(content);
     },
 
+    async readBuiltin() {
+      return deps.builtin ?? null;
+    },
+
     async update({ content, expectedRevision, updatedBy }) {
       const summary = parseAndValidate(content);
       const current = await deps.catalog.readCurrent();
       const currentRevision = current?.revision ?? 0;
-      if (summary.revision <= currentRevision) {
-        // revision 不递增客户端根本不会应用新目录，静默接受只会让管理员以为改成功了。
+      // 审计#20：客户端在内置（revision 30）与远程目录之间取较大者，只超过库内当前值
+      // 但不超过内置 revision 的目录同样不会生效，静默接受只会让管理员误以为推送成功。
+      const floor = Math.max(currentRevision, deps.builtin?.revision ?? 0);
+      if (summary.revision <= floor) {
         throw new PlatformError(
           "invalid_request",
-          `目录 revision 必须大于当前值 ${currentRevision}，收到 ${summary.revision}`,
+          `目录 revision 必须大于 ${floor}（当前值与内置目录 revision 的较大者），收到 ${summary.revision}`,
         );
       }
       return await deps.catalog.write({
@@ -187,6 +228,23 @@ export function createCatalogService(deps: {
           },
         },
       };
+    },
+
+    /**
+     * 在 /api/v1/client/configs 的 configs 里补上运营下发字段（specs/platform/operations.md）。
+     *
+     * 客户端 getForceUpdateMinimalVersionFromConfig 读 configs.forceUpdate.minimalVersion；
+     * 未设置（空串）时不输出该键，避免客户端把空串当有效版本号。
+     */
+    async buildClientConfigsWithOperations(origin, operations) {
+      const payload = await this.buildClientConfigs(origin);
+      const settings = await operations.getSettings();
+      const minimalVersion = settings.forceUpdateMinimalVersion.trim();
+      if (minimalVersion) {
+        const configs = payload["data"] as { configs: Record<string, unknown> };
+        configs.configs["forceUpdate"] = { minimalVersion };
+      }
+      return payload;
     },
   };
 }

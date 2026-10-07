@@ -3,11 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { PlanRecord, SubscriptionRecord } from "../../domain/plans.js";
 import type { ReleaseChannel, ReleaseRecord } from "../../domain/releases.js";
 import { isReleaseChannel } from "../../domain/releases.js";
-import type {
-  CatalogRepository,
-  PlanRepository,
-  ReleaseRepository,
-} from "../../app/ports.js";
+import type { CatalogRepository, PlanRepository, ReleaseRepository } from "../../app/ports.js";
 
 interface CatalogRow {
   revision: number;
@@ -138,9 +134,9 @@ export function createSqlitePlanRepository(db: DatabaseSync): PlanRepository {
     },
 
     async findPlan(planId) {
-      const row = db
-        .prepare("SELECT * FROM plans WHERE id = ?")
-        .get(planId) as unknown as PlanRow | undefined;
+      const row = db.prepare("SELECT * FROM plans WHERE id = ?").get(planId) as unknown as
+        | PlanRow
+        | undefined;
       return row ? toPlan(row) : null;
     },
 
@@ -303,9 +299,9 @@ export function createSqliteReleaseRepository(db: DatabaseSync): ReleaseReposito
     },
 
     async findById(id) {
-      const row = db
-        .prepare("SELECT * FROM releases WHERE id = ?")
-        .get(id) as unknown as ReleaseRow | undefined;
+      const row = db.prepare("SELECT * FROM releases WHERE id = ?").get(id) as unknown as
+        | ReleaseRow
+        | undefined;
       return row ? toRecord(row) : null;
     },
 
