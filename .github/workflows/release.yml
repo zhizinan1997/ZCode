@@ -140,6 +140,10 @@ jobs:
       - name: 构建安装包
         env:
           ZCODE_BASE_URL: ${{ env.ZCODE_CLIENT_BASE_URL }}
+          # 必须显式设为 production：不设会落到 test 身份，产物变成 "RCode Preview" 且文件名
+          # 带 _TEST；更关键的是 preview flavor 下自动更新是关闭的（initAutoUpdater 只在
+          # production 启用），发出去的正式包将永远收不到更新。
+          ZCODE_ENV: production
         run: pnpm bundle:desktop -- --os ${{ matrix.target-os }} --arch ${{ matrix.target-arch }}
 
       # 安装包体积大且只在 Release 需要，因此设置较短的保留期。
